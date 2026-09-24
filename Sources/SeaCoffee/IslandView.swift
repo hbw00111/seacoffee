@@ -4,7 +4,44 @@ import IslandCore
 enum Palette {
     static let mint = Color(red: 0.52, green: 0.94, blue: 0.79)
     static let blue = Color(red: 0.44, green: 0.73, blue: 0.98)
-    static let dim = Color.white.opacity(0.43)
+    static let dim = Color.white.opacity(0.52)
+}
+
+/// The island's material. Expanded it is dark liquid glass; `blackness` fades it to solid black
+/// (collapsed at the notch, completion badge), and `headerBand` keeps the strip under the notch black.
+struct IslandSurface<S: InsettableShape>: View {
+    let shape: S
+    var blackness: Double
+    var headerBand: CGFloat
+    var glow: Color = .clear
+    var glowOpacity: Double = 0
+    var body: some View {
+        ZStack(alignment: .top) {
+            GlassSurface(shape: shape, tintOpacity: 0.42, rim: 0)
+            Ellipse().fill(glow.opacity(glowOpacity))
+                .frame(width: 340, height: 150).blur(radius: 46)
+                .frame(maxHeight: .infinity, alignment: .bottom).offset(y: 70)
+            if headerBand > 0 {
+                VStack(spacing: 0) {
+                    Color.black.frame(height: headerBand)
+                    LinearGradient(colors: [.black, .black.opacity(0)], startPoint: .top, endPoint: .bottom).frame(height: 20)
+                }
+            }
+            Color.black.opacity(blackness)
+        }
+        .clipShape(shape)
+        .overlay {
+            GlassRim(shape: shape, intensity: 1 - blackness)
+                // Keep the rim off the screen edge and the notch strip.
+                .mask {
+                    VStack(spacing: 0) {
+                        LinearGradient(colors: [.clear, .white], startPoint: .top, endPoint: .bottom).frame(height: headerBand > 0 ? headerBand + 14 : 0)
+                        Color.white
+                    }
+                }
+        }
+        .allowsHitTesting(false)
+    }
 }
 
 struct IslandView: View {
@@ -41,17 +78,16 @@ struct IslandView: View {
             }
             .frame(width: model.islandWidth, height: model.islandHeight, alignment: .top)
             .background {
-                shape.fill(.black)
-                    .overlay(alignment: .bottom) {
-                        Ellipse().fill(model.activityAppearance.tint.opacity(model.isRunning ? 0.10 : 0.025))
-                            .frame(width: 330, height: 130).blur(radius: 40).offset(y: 65)
-                    }
-                    .clipShape(shape)
+                // Collapsed at the notch the island stays black so it reads as part of the camera housing.
+                IslandSurface(shape: shape, blackness: model.hasNotch && !model.expanded ? 1 : 0,
+                              headerBand: model.hasNotch ? model.headerHeight : 0,
+                              glow: model.activityAppearance.tint, glowOpacity: model.isRunning ? 0.22 : 0.06)
+            }
+            .background {
+                OuterShadow(shape: shape, opacity: model.expanded ? 0.5 : model.hasNotch ? 0 : 0.18,
+                            radius: model.expanded ? 22 : 6, y: model.expanded ? 12 : 2)
             }
             .clipShape(shape)
-            .overlay(shape.strokeBorder(.white.opacity(model.expanded || model.completion != nil ? 0.11 : 0), lineWidth: 0.7))
-            .shadow(color: .black.opacity(model.expanded ? 0.4 : model.hasNotch ? 0 : 0.08),
-                    radius: model.expanded ? 16 : 3, y: model.expanded ? 9 : 0)
             .animation(model.islandAnimation, value: model.expanded)
             .padding(.top, model.surfaceTopInset)
             Spacer(minLength: 0)
@@ -100,83 +136,95 @@ struct IslandView: View {
         .accessibilityAddTraits(.isButton)
     }
     private var detail: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 8) {
             HStack(alignment: .center, spacing: 14) {
-                VStack(alignment: .leading, spacing: 5) {
+                VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(model.demo ? "Sub2API · 钱包余额" : model.source.title + (model.displayedSnapshot?.balance != nil ? " · 钱包余额" : ""))
                             .font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.dim)
-                        if model.demo {
-                            Text("演示").font(.system(size: 8, weight: .medium)).foregroundStyle(Palette.mint)
-                                .padding(.horizontal, 5).padding(.vertical, 2)
-                                .background(Palette.mint.opacity(0.1), in: Capsule())
-                        }
+                        if model.demo { demoBadge }
                     }
-                    Text(amount).font(.system(size: model.primary == nil ? 24 : 29, weight: .medium, design: .rounded))
-                        .tracking(-0.5).contentTransition(.numericText()).foregroundStyle(.white.opacity(0.94))
+                    Text(amount).font(.system(size: model.primary == nil ? 23 : 28, weight: .medium, design: .rounded))
+                        .tracking(-0.5).contentTransition(.numericText()).foregroundStyle(.white.opacity(0.96))
                     Text(quotaCaption).font(.system(size: 10)).foregroundStyle(Palette.dim).lineLimit(1)
                 }
                 Spacer(minLength: 0)
                 ZStack {
-                    QuotaRing(fraction: model.primary?.fraction, lineWidth: 4, stale: model.isStale, reducedMotion: model.reduceMotion)
-                    VStack(spacing: 2) {
+                    QuotaRing(fraction: model.primary?.fraction, lineWidth: 5, stale: model.isStale, reducedMotion: model.reduceMotion)
+                    VStack(spacing: 1) {
                         Text(model.primary.map { "\($0.percent)%" } ?? "—")
-                            .font(.system(size: 17, weight: .medium, design: .rounded)).monospacedDigit()
+                            .font(.system(size: 16, weight: .semibold, design: .rounded)).monospacedDigit()
                             .contentTransition(.numericText())
                         Text("剩余").font(.system(size: 8)).foregroundStyle(Palette.dim)
                     }
-                }.frame(width: 64, height: 64)
+                }.frame(width: 62, height: 62)
             }
-            .frame(height: 78)
+            .padding(.horizontal, 14)
+            .frame(height: 92)
+            .glassCard(radius: 18, tint: QuotaRing.tint(for: model.primary?.fraction))
 
             HStack(spacing: 14) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Cline Pass" + (model.demo ? " · 演示" : ""))
-                        .font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.dim)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text("Cline Pass").font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.dim)
+                        if model.demo { demoBadge }
+                    }
                     Text(model.clinePrimary.map { "\($0.percent)%" } ?? "等待连接")
-                        .font(.system(size: 23, weight: .medium, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.94)).contentTransition(.numericText())
+                        .font(.system(size: 21, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.96)).contentTransition(.numericText())
                     Text(clineCaption).font(.system(size: 10)).foregroundStyle(Palette.dim).lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                QuotaRing(fraction: model.clinePrimary?.fraction, lineWidth: 4,
+                QuotaRing(fraction: model.clinePrimary?.fraction, lineWidth: 4.5,
                           stale: model.clineIsStale, reducedMotion: model.reduceMotion)
-                    .frame(width: 48, height: 48)
+                    .frame(width: 44, height: 44)
             }
-            .frame(height: 66)
+            .padding(.horizontal, 14)
+            .frame(height: 72)
+            .glassCard(radius: 16, tint: QuotaRing.tint(for: model.clinePrimary?.fraction))
             .help(model.clineMessage)
 
             HStack(spacing: 10) {
                 ActivityCore(state: model.activityAppearance, reducedMotion: model.reduceMotion)
                     .frame(width: 24, height: 24)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(model.statusTitle).font(.system(size: 11, weight: .medium)).foregroundStyle(.white.opacity(0.91))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(model.statusTitle).font(.system(size: 11, weight: .medium)).foregroundStyle(.white.opacity(0.93))
                     Text(model.statusDetail).font(.system(size: 9)).foregroundStyle(Palette.dim).lineLimit(1)
                 }
                 Spacer(minLength: 0)
                 Button { model.openCodex() } label: {
-                    Image(systemName: "arrow.up.right").font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(Palette.dim).frame(width: 23, height: 28)
-                }.buttonStyle(.plain).help("打开 Codex").accessibilityLabel("打开 Codex")
+                    Image(systemName: "arrow.up.right").font(.system(size: 10, weight: .semibold))
+                }
+                .buttonStyle(GlassButtonStyle(compact: true, circle: true))
+                .help("打开 Codex").accessibilityLabel("打开 Codex")
             }
-            .padding(.horizontal, 10)
+            .padding(.leading, 12).padding(.trailing, 13)
             .frame(height: 50)
-            .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
+            .glassCard(radius: 16, tint: model.activityAppearance == .idle ? nil : model.activityAppearance.tint)
 
             HStack(spacing: 5) {
-                Circle().fill(model.snapshot != nil || model.demo ? Palette.mint.opacity(0.7) : Color.orange.opacity(0.7)).frame(width: 4, height: 4)
+                Circle().fill(model.snapshot != nil || model.demo ? Palette.mint : Color.orange)
+                    .frame(width: 5, height: 5)
+                    .shadow(color: model.snapshot != nil || model.demo ? Palette.mint : Color.orange, radius: 3)
                 Text(model.demo ? "演示数据 · 两个账号独立刷新" : "Codex + Cline Pass · 每分钟独立刷新").font(.system(size: 9)).foregroundStyle(Palette.dim).lineLimit(1)
                     .help(model.serviceMessage)
                 Spacer(minLength: 6)
                 Button { model.openSettings?() } label: {
-                    Label("设置", systemImage: "gearshape").font(.system(size: 10)).foregroundStyle(.white.opacity(0.65))
-                        .frame(height: 24).contentShape(Rectangle())
-                }.buttonStyle(.plain)
-            }.frame(height: 24)
+                    Label("设置", systemImage: "gearshape").font(.system(size: 10, weight: .medium))
+                }.buttonStyle(GlassButtonStyle(compact: true))
+            }
+            .padding(.leading, 6)
+            .frame(height: 26)
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 8)
+        .padding(.horizontal, 14)
+        .padding(.top, 6)
         .frame(height: model.detailHeight, alignment: .top)
+    }
+    private var demoBadge: some View {
+        Text("演示").font(.system(size: 8, weight: .semibold)).foregroundStyle(Palette.mint)
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(Capsule().fill(Palette.mint.opacity(0.14)))
+            .overlay(GlassRim(shape: Capsule(), intensity: 0.5))
     }
     private func compactQuota(_ label: String, quota: Quota?, stale: Bool) -> some View {
         HStack(spacing: 4) {
@@ -239,7 +287,7 @@ struct QuotaRing: View {
     var stale = false
     var reducedMotion = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private var tint: Color {
+    static func tint(for fraction: Double?) -> Color {
         switch QuotaLevel(fraction: fraction) {
         case .healthy: return Palette.mint
         case .warning: return Color(red: 1, green: 0.79, blue: 0.26)
@@ -247,15 +295,18 @@ struct QuotaRing: View {
         case .unknown: return .gray
         }
     }
+    private var tint: Color { Self.tint(for: fraction) }
     var body: some View {
         ZStack {
-            Circle().stroke(.white.opacity(0.09), lineWidth: lineWidth)
+            // Recessed glass groove for the track.
+            Circle().stroke(.black.opacity(0.28), lineWidth: lineWidth)
+            Circle().stroke(LinearGradient(colors: [.white.opacity(0.04), .white.opacity(0.14)], startPoint: .top, endPoint: .bottom), lineWidth: lineWidth)
             if let fraction {
                 Circle().trim(from: 0, to: fraction)
                     .stroke(AngularGradient(colors: [tint.opacity(0.65), tint], center: .center, startAngle: .degrees(0), endAngle: .degrees(360)),
                             style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                     .rotationEffect(.degrees(-90)).opacity(stale ? 0.45 : 1)
-                    .shadow(color: tint.opacity(0.20), radius: 5)
+                    .shadow(color: tint.opacity(0.45), radius: 6)
                     .animation(reduceMotion || reducedMotion ? nil : .spring(response: 0.9, dampingFraction: 0.9), value: fraction)
             } else {
                 Circle().stroke(.white.opacity(0.22), style: StrokeStyle(lineWidth: lineWidth, dash: [2, 5]))

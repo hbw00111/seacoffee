@@ -139,7 +139,9 @@ struct CompletionSurface<Content: View>: View {
         let shape = UnevenRoundedRectangle(topLeadingRadius: topRadius,
             bottomLeadingRadius: bottomRadius, bottomTrailingRadius: bottomRadius,
             topTrailingRadius: topRadius, style: .continuous)
-        shape.fill(.black)
+        // Glass states (expanded, or any state without a notch) darken into the black badge as it merges.
+        let glassy = baseHeight > 40 || !hasNotch
+        IslandSurface(shape: shape, blackness: glassy ? amount : 1, headerBand: hasNotch ? cameraHeight : 0)
         .frame(width: width, height: height)
         // Overlays keep the fading expanded content from determining the badge's layout size.
         .overlay(alignment: .top) {

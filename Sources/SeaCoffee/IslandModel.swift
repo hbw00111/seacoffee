@@ -65,7 +65,7 @@ final class IslandModel: ObservableObject {
     var completionWidth: CGFloat { hasNotch ? notchWidth : 180 }
     var islandWidth: CGFloat { completion != nil ? completionWidth : expanded ? max(360, compactWidth) : compactWidth }
     var islandHeight: CGFloat { completion != nil ? (hasNotch ? headerHeight : 0) + 72 : expanded ? headerHeight + detailHeight : headerHeight }
-    var detailHeight: CGFloat { 266 }
+    var detailHeight: CGFloat { 282 }
     var surfaceTopInset: CGFloat { 0 }
     var animation: Animation { reduceMotion ? .easeOut(duration: 0.16) : .spring(response: 0.48, dampingFraction: 0.86) }
     var openingAnimation: Animation { reduceMotion ? .easeOut(duration: 0.1) : .spring(response: 0.32, dampingFraction: 0.9) }

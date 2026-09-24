@@ -128,11 +128,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func quit() { NSApp.terminate(nil) }
     private func showSettings() {
         if settingsWindow == nil {
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 680),
-                                  styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 700),
+                                  styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView], backing: .buffered, defer: false)
             window.title = "Sea Coffee · 设置"; window.isReleasedWhenClosed = false
-            window.titlebarAppearsTransparent = true
-            window.contentView = NSHostingView(rootView: SettingsView(model: model))
+            window.titlebarAppearsTransparent = true; window.titleVisibility = .hidden
+            // Clear window so the SwiftUI backdrop can blur the desktop behind it.
+            window.isOpaque = false; window.backgroundColor = .clear
+            window.isMovableByWindowBackground = true
+            let host = NSHostingView(rootView: SettingsView(model: model))
+            // The SwiftUI root already covers the titlebar; don't let the safe area grow the window.
+            host.sizingOptions = []
+            window.contentView = host
             window.center(); settingsWindow = window
         }
         NSApp.activate(ignoringOtherApps: true); settingsWindow?.makeKeyAndOrderFront(nil)
@@ -196,5 +202,6 @@ struct PreviewCanvas: View {
                     .font(.system(size: 10)).foregroundStyle(.white.opacity(0.3)).padding(.bottom, 30)
             }
         }.frame(width: 960, height: 680).foregroundStyle(.white).preferredColorScheme(.dark)
+        .environment(\.glassSnapshot, true)
     }
 }

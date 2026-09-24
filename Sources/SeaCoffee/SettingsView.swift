@@ -28,133 +28,204 @@ struct SettingsView: View {
         _hoverEnabled = State(initialValue: model.hoverEnabled)
     }
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Image(systemName: "sparkle").font(.system(size: 25)).foregroundStyle(Palette.mint)
-                    .frame(width: 48, height: 48).background(Palette.mint.opacity(0.10), in: RoundedRectangle(cornerRadius: 15))
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Sea Coffee").font(.system(size: 21, weight: .semibold))
-                    Text("AI 任务状态与剩余额度").font(.system(size: 11)).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Text("PREVIEW 0.1").font(.system(size: 9, design: .monospaced)).tracking(1.4).foregroundStyle(.secondary)
-            }.padding(24)
-            Divider().opacity(0.5)
-            Form {
-                Section {
-                    Picker("Codex 接入方式", selection: Binding(get: { model.source }, set: { model.select($0) })) {
-                        ForEach(Provider.allCases) { Text($0.title).tag($0) }
+        ZStack(alignment: .bottom) {
+            SettingsBackdrop()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    header
+                    codexSection
+                    GlassSection(title: "Cline Pass · 独立连接", symbol: "circle.dotted.circle", tint: Palette.blue) {
+                        ClineAccountSettings(account: model.clineAccount)
+                        GlassDivider()
+                        statusRow {
+                            Text(model.clineMessage).multilineTextAlignment(.trailing).textSelection(.enabled)
+                        }
                     }
-                    if model.source == .sub2api {
-                        TextField("站点地址", text: $site).textContentType(.URL)
+                    GlassSection(title: "钥匙串访问", symbol: "key.fill", tint: Color(red: 1, green: 0.79, blue: 0.26)) {
+                        HStack(alignment: .center, spacing: 14) {
+                            caption("后台刷新不弹密码框。授权后，本次运行会复用凭据；如系统提供“始终允许”，可用它保存此次授权。")
+                            Spacer(minLength: 0)
+                            Button(model.authorizingCredentials ? "等待系统授权…" : "授权读取已存凭据") {
+                                model.authorizeCredentials()
+                            }
+                            .buttonStyle(GlassButtonStyle())
+                            .disabled(model.authorizingCredentials || model.clineAccount.busy)
+                        }
+                    }
+                    GlassSection(title: "任务状态", symbol: "waveform.path", tint: ActivityAppearance.running.tint) {
+                        SettingRow("Codex 会话目录") { GlassTextField(placeholder: "~/.codex/sessions", text: $sessionPath, monospaced: true) }
+                        caption("在本机监听 Codex 的运行、完成和中断状态，不上传对话内容。")
+                        GlassDivider()
                         HStack {
-                            SecureField(hasSavedKey == true ? "API Key（输入可替换已有密钥）" : "API Key", text: $key)
-                            Button("粘贴", action: pasteKey)
-                                .help("从剪贴板填入 API Key")
-                        }
-                            .disabled(deleteKey)
-                            .onChange(of: key) { _, value in
-                                if !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                    keyResult = ""; keyError = false; result = ""; saved = false
-                                }
-                            }
-                        HStack(spacing: 7) {
-                            if saving {
-                                ProgressView().controlSize(.mini)
-                            } else {
-                                Image(systemName: keyStatusIcon)
-                            }
-                            Text(keyStatusText)
-                        }
-                        .font(.caption).foregroundStyle(keyStatusColor)
-                        .accessibilityElement(children: .combine)
-                        .accessibilityLabel(keyStatusText)
-                        TextField("钱包满格基准（USD）", text: $baseline)
-                        if hasSavedKey == true {
-                            Toggle("移除已保存的 API Key", isOn: $deleteKey)
-                                .disabled(!key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                                .onChange(of: deleteKey) { _, _ in result = ""; saved = false }
-                        }
-                        Text("余额来自服务商。圆环按余额 ÷ 满格基准计算；套餐和 Key 配额优先使用服务端总额度。")
-                            .font(.caption).foregroundStyle(.secondary)
-                    } else {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("使用 ChatGPT 账号登录")
-                                Text("登录将在浏览器完成。独立保存官方登录状态，不改动你现有的 Codex 中转配置。")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
+                            Text("当前识别到 \(model.running.count) 个运行中任务").font(.system(size: 12.5))
                             Spacer()
-                            Button("连接官方账号") {
-                                model.account.binaryPath = binary
-                                model.account.connect()
-                            }
+                            Button(model.demo ? "结束预览" : "预览完成动画") { model.preview() }
+                                .buttonStyle(GlassButtonStyle())
                         }
-                        TextField("Codex CLI 路径（留空自动查找）", text: $binary)
                     }
-                    LabeledContent("连接状态") {
-                        HStack(spacing: 6) {
-                            if model.refreshing { ProgressView().controlSize(.mini) }
-                            Text(model.refreshing ? "正在查询余额…" : model.serviceMessage)
-                                .multilineTextAlignment(.trailing).textSelection(.enabled)
-                        }.font(.caption).foregroundStyle(.secondary)
+                    GlassSection(title: "外观与交互", symbol: "sparkles", tint: Color(red: 0.78, green: 0.62, blue: 1)) {
+                        SettingRow("悬停时展开") { HStack { Spacer(); Toggle("悬停时展开", isOn: $hoverEnabled).labelsHidden() } }
+                        GlassDivider()
+                        SettingRow("减少动态效果") { HStack { Spacer(); Toggle("减少动态效果", isOn: $reducedMotion).labelsHidden() } }
+                        GlassDivider()
+                        caption("额度圆环：50% 及以上为绿，20%–49% 为黄，低于 20% 为红。左侧橙色运行、红色报错、绿色完成，数字为运行中的对话数。")
+                        caption("完成时两侧合拢为与刘海等宽的黑色背景，对勾立体翻转后收回。减少动态效果时改为静态对勾；额度每分钟刷新。")
                     }
-                } header: { Label("Codex 账号与额度", systemImage: "circle.dotted.circle") }
-
-                Section {
-                    ClineAccountSettings(account: model.clineAccount)
-                    LabeledContent("连接状态") {
-                        Text(model.clineMessage).font(.caption).foregroundStyle(.secondary)
-                            .multilineTextAlignment(.trailing).textSelection(.enabled)
-                    }
-                } header: { Label("Cline Pass · 独立连接", systemImage: "circle.dotted.circle") }
-
-                Section {
-                    Button(model.authorizingCredentials ? "等待系统授权…" : "授权读取已存凭据") {
-                        model.authorizeCredentials()
-                    }.disabled(model.authorizingCredentials || model.clineAccount.busy)
-                    Text("后台刷新不弹密码框。授权后，本次运行会复用凭据；如系统提供“始终允许”，可用它保存此次授权。")
-                        .font(.caption).foregroundStyle(.secondary)
-                } header: { Label("钥匙串访问", systemImage: "key") }
-
-                Section {
-                    TextField("Codex 会话目录", text: $sessionPath)
-                    Text("在本机监听 Codex 的运行、完成和中断状态，不上传对话内容。")
-                        .font(.caption).foregroundStyle(.secondary)
-                    HStack {
-                        Text("当前识别到 \(model.running.count) 个运行中任务")
-                        Spacer()
-                        Button(model.demo ? "结束预览" : "预览完成动画") { model.preview() }
-                    }
-                } header: { Label("任务状态", systemImage: "waveform.path") }
-
-                Section {
-                    Toggle("悬停时展开", isOn: $hoverEnabled)
-                    Toggle("减少动态效果", isOn: $reducedMotion)
-                    Text("额度圆环：50% 及以上为绿，20%–49% 为黄，低于 20% 为红。左侧橙色运行、红色报错、绿色完成，数字为运行中的对话数。")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Text("完成时两侧合拢为与刘海等宽的黑色背景，对勾立体翻转后收回。减少动态效果时改为静态对勾；额度每分钟刷新。")
-                        .font(.caption).foregroundStyle(.secondary)
-                } header: { Label("外观与交互", systemImage: "sparkles") }
-            }.formStyle(.grouped).disabled(saving)
-            Divider().opacity(0.5)
-            HStack {
-                HStack(spacing: 7) {
-                    if saving { ProgressView().controlSize(.small) }
-                    else if !result.isEmpty { Image(systemName: saved ? "checkmark.circle.fill" : "exclamationmark.circle") }
-                    Text(result.isEmpty ? (model.source == .sub2api ? "输入密钥后，点击保存并刷新" : "账号登录会自动保存；其他设置请点击保存") : result)
                 }
-                .font(.caption).foregroundStyle(saving ? Color.secondary : saved ? Palette.mint : result.isEmpty ? .secondary : .red)
-                .lineLimit(2)
-                Spacer()
-                Button(saving ? "正在保存…" : "保存并刷新", action: save).buttonStyle(.borderedProminent).tint(Palette.mint)
-                    .foregroundStyle(.black).keyboardShortcut(.defaultAction)
-                    .disabled(saving)
-            }.padding(20)
+                .toggleStyle(.switch).tint(Palette.mint)
+                .padding(.horizontal, 26)
+                .padding(.top, 46)
+                .padding(.bottom, 92)
+                .disabled(saving)
+            }
+            .scrollIndicators(.never)
+            // Content fades out under the traffic lights instead of colliding with them.
+            .mask {
+                VStack(spacing: 0) {
+                    LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 40)
+                    Color.black
+                }
+            }
+            actionBar
+                .padding(.horizontal, 18)
+                .padding(.bottom, 16)
         }
-        .frame(width: 620, height: 680)
+        .frame(width: 620, height: 700)
+        .ignoresSafeArea()
+        .foregroundStyle(.white)
         .preferredColorScheme(.dark)
         .task { await checkStoredKey() }
+    }
+    private var header: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "sparkle").font(.system(size: 24, weight: .medium)).foregroundStyle(.white)
+                .frame(width: 52, height: 52)
+                .background {
+                    RoundedRectangle(cornerRadius: 15, style: .continuous)
+                        .fill(LinearGradient(colors: [Palette.mint.opacity(0.9), Palette.blue.opacity(0.75)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .overlay(GlassSheen(strength: 2.5).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous)))
+                        .shadow(color: Palette.mint.opacity(0.35), radius: 14, y: 5)
+                }
+                .overlay(GlassRim(shape: RoundedRectangle(cornerRadius: 15, style: .continuous)))
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Sea Coffee").font(.system(size: 22, weight: .semibold))
+                Text("AI 任务状态与剩余额度").font(.system(size: 11.5)).foregroundStyle(.white.opacity(0.55))
+            }
+            Spacer()
+            Text("PREVIEW 0.1").font(.system(size: 9, weight: .medium, design: .monospaced)).tracking(1.4)
+                .foregroundStyle(.white.opacity(0.6))
+                .padding(.horizontal, 10).frame(height: 22)
+                .background(Capsule().fill(.white.opacity(0.07)))
+                .overlay(GlassRim(shape: Capsule(), intensity: 0.7))
+        }
+        .padding(.leading, 4)
+    }
+    private var codexSection: some View {
+        GlassSection(title: "Codex 账号与额度", symbol: "circle.dotted.circle", tint: Palette.mint) {
+            SettingRow("接入方式") {
+                GlassSegmented(options: Provider.allCases, selection: Binding(get: { model.source }, set: { model.select($0) })) { $0.title }
+            }
+            GlassDivider()
+            if model.source == .sub2api {
+                SettingRow("站点地址") { GlassTextField(placeholder: "https://", text: $site).textContentType(.URL) }
+                SettingRow("API Key") {
+                    HStack(spacing: 8) {
+                        GlassTextField(placeholder: hasSavedKey == true ? "输入可替换已有密钥" : "sk-…", text: $key, secure: true)
+                        Button("粘贴", action: pasteKey).buttonStyle(GlassButtonStyle())
+                            .help("从剪贴板填入 API Key")
+                    }
+                    .disabled(deleteKey)
+                    .onChange(of: key) { _, value in
+                        if !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            keyResult = ""; keyError = false; result = ""; saved = false
+                        }
+                    }
+                }
+                SettingRow("") {
+                    HStack(spacing: 7) {
+                        if saving {
+                            ProgressView().controlSize(.mini)
+                        } else {
+                            Image(systemName: keyStatusIcon)
+                        }
+                        Text(keyStatusText)
+                    }
+                    .font(.system(size: 11)).foregroundStyle(keyStatusColor)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(keyStatusText)
+                }
+                SettingRow("满格基准") {
+                    HStack(spacing: 8) {
+                        GlassTextField(placeholder: "100", text: $baseline).frame(width: 120)
+                        Text("USD").font(.system(size: 11, weight: .medium)).foregroundStyle(.white.opacity(0.5))
+                        Spacer(minLength: 0)
+                    }
+                }
+                if hasSavedKey == true {
+                    SettingRow("移除已存密钥") {
+                        HStack { Spacer(); Toggle("移除已保存的 API Key", isOn: $deleteKey).labelsHidden() }
+                    }
+                    .disabled(!key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .onChange(of: deleteKey) { _, _ in result = ""; saved = false }
+                }
+                caption("余额来自服务商。圆环按余额 ÷ 满格基准计算；套餐和 Key 配额优先使用服务端总额度。")
+            } else {
+                HStack(spacing: 14) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("使用 ChatGPT 账号登录").font(.system(size: 12.5, weight: .medium))
+                        caption("登录将在浏览器完成。独立保存官方登录状态，不改动你现有的 Codex 中转配置。")
+                    }
+                    Spacer(minLength: 0)
+                    Button("连接官方账号") {
+                        model.account.binaryPath = binary
+                        model.account.connect()
+                    }
+                    .buttonStyle(GlassButtonStyle(prominent: Palette.mint))
+                }
+                SettingRow("Codex CLI 路径") { GlassTextField(placeholder: "留空自动查找", text: $binary, monospaced: true) }
+            }
+            GlassDivider()
+            statusRow {
+                HStack(spacing: 6) {
+                    if model.refreshing { ProgressView().controlSize(.mini) }
+                    Text(model.refreshing ? "正在查询余额…" : model.serviceMessage)
+                        .multilineTextAlignment(.trailing).textSelection(.enabled)
+                }
+            }
+        }
+    }
+    private var actionBar: some View {
+        HStack(spacing: 12) {
+            HStack(spacing: 7) {
+                if saving { ProgressView().controlSize(.small) }
+                else if !result.isEmpty { Image(systemName: saved ? "checkmark.circle.fill" : "exclamationmark.circle") }
+                Text(result.isEmpty ? (model.source == .sub2api ? "输入密钥后，点击保存并刷新" : "账号登录会自动保存；其他设置请点击保存") : result)
+            }
+            .font(.system(size: 11.5)).foregroundStyle(saving ? Color.white.opacity(0.55) : saved ? Palette.mint : result.isEmpty ? .white.opacity(0.55) : .red)
+            .lineLimit(2)
+            Spacer()
+            Button(saving ? "正在保存…" : "保存并刷新", action: save)
+                .buttonStyle(GlassButtonStyle(prominent: Palette.mint))
+                .keyboardShortcut(.defaultAction)
+                .disabled(saving)
+        }
+        .padding(.leading, 18).padding(.trailing, 9)
+        .frame(height: 50)
+        .background {
+            OuterShadow(shape: Capsule(), opacity: 0.4, radius: 18, y: 8)
+            // Blurs the scrolling settings underneath, not the desktop.
+            GlassSurface(shape: Capsule(), tintOpacity: 0.18, blending: .withinWindow)
+        }
+    }
+    private func statusRow<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text("连接状态").font(.system(size: 12.5)).foregroundStyle(.white.opacity(0.75))
+            Spacer(minLength: 16)
+            content().font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))
+        }
+    }
+    private func caption(_ text: String) -> some View {
+        Text(text).font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true)
     }
     private var draftKey: String { key.trimmingCharacters(in: .whitespacesAndNewlines) }
     private func pasteKey() {
@@ -245,31 +316,115 @@ private struct ClineAccountSettings: View {
     @ObservedObject var account: ClineAccount
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("使用 Cline 账号登录 Cline Pass")
-            Text("在浏览器确认设备码后完成登录。登录凭据保存在 macOS 钥匙串，自动刷新套餐配额。")
-                .font(.caption).foregroundStyle(.secondary)
-            if let email = account.email { Text(email).font(.caption).textSelection(.enabled) }
-            if let code = account.userCode {
-                HStack {
-                    Text("设备码：")
-                    Text(code).font(.system(.body, design: .monospaced)).textSelection(.enabled)
-                    Button("复制") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(code, forType: .string) }
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("使用 Cline 账号登录 Cline Pass").font(.system(size: 12.5, weight: .medium))
+                    if let email = account.email {
+                        Text(email).font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.blue).textSelection(.enabled)
+                    }
                 }
-                if let url = account.verificationURL { Link("重新打开登录页面", destination: url) }
+                Spacer(minLength: 0)
+                if account.connected {
+                    Label("已连接", systemImage: "checkmark.circle.fill").font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(Palette.mint)
+                        .padding(.horizontal, 9).frame(height: 22)
+                        .background(Capsule().fill(Palette.mint.opacity(0.12)))
+                        .overlay(GlassRim(shape: Capsule(), intensity: 0.5))
+                }
             }
-            HStack {
-                if account.busy { ProgressView().controlSize(.small) }
+            Text("在浏览器确认设备码后完成登录。登录凭据保存在 macOS 钥匙串，自动刷新套餐配额。")
+                .font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true)
+            if let code = account.userCode {
+                HStack(spacing: 10) {
+                    Text("设备码").font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))
+                    Text(code).font(.system(size: 17, weight: .semibold, design: .monospaced)).tracking(2).textSelection(.enabled)
+                    Spacer(minLength: 0)
+                    Button("复制") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(code, forType: .string) }
+                        .buttonStyle(GlassButtonStyle(compact: true))
+                    if let url = account.verificationURL {
+                        Link("重新打开登录页面", destination: url).font(.system(size: 11)).foregroundStyle(Palette.blue)
+                    }
+                }
+                .padding(.horizontal, 12).frame(height: 44)
+                .glassCard(radius: 12, tint: Palette.blue)
+            }
+            HStack(spacing: 8) {
                 Button(account.connected ? "重新登录" : "连接 Cline 账号") { account.connect() }
+                    .buttonStyle(GlassButtonStyle(prominent: account.connected ? nil : Palette.blue))
                     .disabled(account.busy)
                 if account.loggingIn {
-                    Button("取消登录") { account.stop() }
+                    Button("取消登录") { account.stop() }.buttonStyle(GlassButtonStyle())
                 } else {
-                    Button("退出账号") { account.logout() }.disabled(account.busy || !account.connected)
+                    Button("退出账号") { account.logout() }.buttonStyle(GlassButtonStyle())
+                        .disabled(account.busy || !account.connected)
                 }
-                Link("管理 Cline Pass", destination: URL(string: "https://app.cline.bot/dashboard/subscription?personal=true")!)
+                if account.busy { ProgressView().controlSize(.small) }
+                Spacer(minLength: 0)
+                Link(destination: URL(string: "https://app.cline.bot/dashboard/subscription?personal=true")!) {
+                    Label("管理 Cline Pass", systemImage: "arrow.up.right").labelStyle(TrailingIconLabelStyle())
+                }
+                .font(.system(size: 11.5, weight: .medium)).foregroundStyle(Palette.blue)
             }
             Text("显示 Cline Pass 套餐配额；本机任务状态仍来自 Codex。")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.system(size: 11)).foregroundStyle(.white.opacity(0.5))
+        }
+    }
+}
+
+private struct TrailingIconLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 3) { configuration.title; configuration.icon.imageScale(.small) }
+    }
+}
+
+/// Window background: live blur of the desktop with soft colour pools for the glass to refract.
+private struct SettingsBackdrop: View {
+    var body: some View {
+        ZStack {
+            BackdropBlur(material: .hudWindow)
+            Color.black.opacity(0.28)
+            Circle().fill(Palette.mint.opacity(0.20)).frame(width: 420).blur(radius: 120).offset(x: -250, y: -300)
+            Circle().fill(Palette.blue.opacity(0.18)).frame(width: 460).blur(radius: 130).offset(x: 260, y: 320)
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+    }
+}
+
+private struct GlassSection<Content: View>: View {
+    let title: String
+    let symbol: String
+    var tint: Color = Palette.mint
+    @ViewBuilder var content: Content
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: symbol).font(.system(size: 10.5, weight: .bold)).foregroundStyle(tint)
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(tint.opacity(0.15)))
+                    .overlay(GlassRim(shape: Circle(), intensity: 0.6))
+                Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white.opacity(0.92))
+            }
+            .padding(.leading, 4)
+            VStack(alignment: .leading, spacing: 12) { content }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .glassCard(radius: 20)
+        }
+    }
+}
+
+private struct SettingRow<Content: View>: View {
+    let title: String
+    @ViewBuilder var content: Content
+    init(_ title: String, @ViewBuilder content: () -> Content) {
+        self.title = title; self.content = content()
+    }
+    var body: some View {
+        HStack(spacing: 14) {
+            Text(title).font(.system(size: 12.5)).foregroundStyle(.white.opacity(0.75))
+                .frame(width: 118, alignment: .leading)
+            content.frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }

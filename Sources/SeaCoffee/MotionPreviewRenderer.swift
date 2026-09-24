@@ -69,6 +69,7 @@ private struct MotionPreviewFrame: View {
         .frame(width: 520, height: 280)
         .background(Color(red: 0.075, green: 0.085, blue: 0.10))
         .environment(\.colorScheme, .dark)
+        .environment(\.glassSnapshot, true)
     }
     private func sample(_ state: ActivityAppearance, label: String) -> some View {
         HStack(spacing: 6) {
