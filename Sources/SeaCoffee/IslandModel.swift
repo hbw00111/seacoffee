@@ -1,0 +1,331 @@
+import AppKit
+import SwiftUI
+import IslandCore
+
+enum Provider: String, CaseIterable, Identifiable {
+    case sub2api, official
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .sub2api: return "Codex API"
+        case .official: return "Codex 官方"
+        }
+    }
+}
+
+struct CompletionPresentation: Identifiable {
+    let id = UUID()
+    let startedAt = Date()
+    let isDemo: Bool
+    var initialWidth: CGFloat = 291
+    var initialHeight: CGFloat = 32
+    var wasExpanded = false
+}
+
+@MainActor
+final class IslandModel: ObservableObject {
+    @Published var expanded = false
+    @Published var pinned = false
+    @Published var hovered = false
+    @Published var notchWidth: CGFloat = 180
+    @Published var notchHeight: CGFloat = 32
+    @Published var hasNotch = false
+    @Published var source: Provider
+    @Published var snapshot: UsageSnapshot?
+    @Published var clineSnapshot: UsageSnapshot?
+    @Published var clineMessage = "请连接 Cline 账号"
+    @Published var serviceMessage = "在设置中添加 API Key，即可查看真实余额"
+    @Published var monitorMessage: String?
+    @Published var sessions: [SessionState] = []
+    @Published var refreshing = false
+    @Published var demo = false
+    @Published var demoRunning = true
+    @Published var notice: SessionState?
+    @Published var completion: CompletionPresentation?
+    @Published var reducedMotion: Bool
+    @Published var hoverEnabled: Bool
+    var openSettings: (() -> Void)?
+    var geometryChanged: (() -> Void)?
+    let account = OfficialAccount()
+    let clineAccount = ClineAccount()
+    private var monitor: SessionMonitor?
+    private var refreshTimer: Timer?
+    private var collapseTask: Task<Void, Never>?
+    private var noticeTask: Task<Void, Never>?
+    private var demoTask: Task<Void, Never>?
+    private var refreshTask: Task<Void, Never>?
+    private var generation = UUID()
+    private var noticeQueue: [SessionState] = []
+
+    var site: String { UserDefaults.standard.string(forKey: "site") ?? "https://coderteam.icu" }
+    var baseline: Double { let n = UserDefaults.standard.double(forKey: "baseline"); return n > 0 ? n : 100 }
+    var sessionPath: String { UserDefaults.standard.string(forKey: "sessionPath") ?? "~/.codex/sessions" }
+    var compactWidth: CGFloat { max(290, notchWidth + 180) }
+    var headerHeight: CGFloat { hasNotch ? max(24, notchHeight) : 32 }
+    var completionWidth: CGFloat { hasNotch ? notchWidth : 180 }
+    var islandWidth: CGFloat { completion != nil ? completionWidth : expanded ? max(360, compactWidth) : compactWidth }
+    var islandHeight: CGFloat { completion != nil ? (hasNotch ? headerHeight : 0) + 72 : expanded ? headerHeight + detailHeight : headerHeight }
+    var detailHeight: CGFloat { 266 }
+    var surfaceTopInset: CGFloat { 0 }
+    var animation: Animation { reduceMotion ? .easeOut(duration: 0.16) : .spring(response: 0.48, dampingFraction: 0.86) }
+    var openingAnimation: Animation { reduceMotion ? .easeOut(duration: 0.1) : .spring(response: 0.32, dampingFraction: 0.9) }
+    var closingAnimation: Animation { .easeOut(duration: reduceMotion ? 0.1 : 0.18) }
+    var islandAnimation: Animation { expanded ? openingAnimation : closingAnimation }
+    var reduceMotion: Bool { reducedMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+    var running: [SessionState] { sessions.filter { $0.state == .running } }
+    var uncertain: Bool { sessions.contains { $0.state == .unknown && !$0.transitionID.isEmpty } }
+    var activeConversationCount: Int { demo ? (demoRunning ? 3 : 0) : Set(running.map(\.id)).count }
+    var isRunning: Bool { activeConversationCount > 0 }
+    var activityAppearance: ActivityAppearance {
+        if let notice {
+            switch notice.state {
+            case .completed: return .completed
+            case .failed: return .failed
+            case .interrupted: return .interrupted
+            default: break
+            }
+        }
+        if demo && !demoRunning { return .completed }
+        if isRunning { return .running }
+        switch sessions.max(by: { $0.updatedAt < $1.updatedAt })?.state {
+        case .completed: return .completed
+        case .failed: return .failed
+        case .interrupted: return .interrupted
+        default: return .idle
+        }
+    }
+    var displayedSnapshot: UsageSnapshot? {
+        demo ? UsageSnapshot(quotas: [Quota(id: "wallet", label: "余额基准", remaining: 68.4, limit: 100)], balance: 68.4, source: "演示数据") : snapshot
+    }
+    var displayedClineSnapshot: UsageSnapshot? {
+        demo ? UsageSnapshot(quotas: [
+            Quota(id: "five_hour", label: "5 小时", remaining: 72, limit: 100, monetary: false),
+            Quota(id: "weekly", label: "每周", remaining: 61, limit: 100, monetary: false),
+            Quota(id: "monthly", label: "每月", remaining: 48, limit: 100, monetary: false)
+        ], source: "Cline Pass") : clineSnapshot
+    }
+    var clinePrimary: Quota? { displayedClineSnapshot?.quotas.first }
+    var clineIsStale: Bool { !demo && clineSnapshot.map { Date().timeIntervalSince($0.fetchedAt) > 180 } == true }
+    var primary: Quota? { displayedSnapshot?.quotas.first }
+    var isStale: Bool { !demo && snapshot.map { Date().timeIntervalSince($0.fetchedAt) > 180 } == true }
+    var statusTitle: String {
+        if demo { return demoRunning ? "Codex 正在运行" : "Codex 本轮已完成" }
+        if let notice {
+            switch notice.state {
+            case .completed: return "Codex 本轮已完成"
+            case .failed: return "任务遇到了问题"
+            default: return "任务已中断"
+            }
+        }
+        if isRunning { return "Codex 正在运行" }
+        return uncertain ? "任务状态待确认" : "暂无运行中的任务"
+    }
+    var statusDetail: String {
+        if demo { return demoRunning ? "seacoffee · 正在打磨界面" : "seacoffee · 本轮回复已结束" }
+        if let notice { return "\(notice.project) · 点击右侧按钮打开 Codex" }
+        if let first = running.first { return "\(first.project) · \(activeConversationCount) 个对话运行中" }
+        if uncertain { return "较长时间未收到事件 · 请查看 Codex" }
+        return monitorMessage ?? "本地监听已开启 · 等待下一次任务"
+    }
+
+    init(defaults: UserDefaults = .standard) {
+        source = Provider(rawValue: defaults.string(forKey: "source") ?? "") ?? .sub2api
+        reducedMotion = defaults.bool(forKey: "reducedMotion")
+        hoverEnabled = defaults.object(forKey: "hoverEnabled") as? Bool ?? true
+        account.binaryPath = defaults.string(forKey: "codexBinary") ?? ""
+        clineAccount.onStatus = { [weak self] text in
+            self?.clineMessage = text
+        }
+        clineAccount.onUsage = { [weak self] usage in
+            guard let self else { return }
+            withAnimation(self.animation) { self.clineSnapshot = usage }
+        }
+        clineAccount.onLogout = { [weak self] in
+            self?.clineSnapshot = nil
+        }
+        account.onStatus = { [weak self] text in
+            guard self?.source == .official else { return }
+            self?.serviceMessage = text; self?.refreshing = false
+        }
+        account.onUsage = { [weak self] usage in
+            guard let self, self.source == .official else { return }
+            withAnimation(self.animation) { self.snapshot = usage }
+            self.refreshing = false
+        }
+    }
+    func start() {
+        startMonitor(); refresh()
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refresh() }
+        }
+    }
+    func stop() {
+        monitor?.stop(); refreshTimer?.invalidate(); account.stop(); clineAccount.stop()
+        collapseTask?.cancel(); noticeTask?.cancel(); demoTask?.cancel(); refreshTask?.cancel()
+    }
+    func startMonitor() {
+        monitor?.stop()
+        let token = UUID(); generation = token
+        monitor = SessionMonitor(path: sessionPath) { [weak self] update in
+            Task { @MainActor in
+                guard let self, self.generation == token else { return }
+                self.sessions = update.sessions; self.monitorMessage = update.message
+                for finished in update.finished { self.showNotice(finished) }
+                if !update.finished.isEmpty { self.refresh() }
+            }
+        }
+        monitor?.start()
+    }
+    func refresh() {
+        // Independent lanes: an API request or Keychain prompt must not block Cline.
+        clineAccount.refresh()
+        refreshCodex()
+    }
+    private func refreshCodex() {
+        guard !refreshing else { return }
+        if source == .official { refreshing = true; account.refresh(); return }
+        refreshing = true
+        let site = site, baseline = baseline
+        refreshTask = Task {
+            do {
+                // Keychain may wait for macOS authorization. Never block the island's UI thread.
+                let stored = try await Task.detached(priority: .userInitiated) { try SecureStore.read() }.value
+                guard !Task.isCancelled, source == .sub2api else { return }
+                guard let key = stored, !key.isEmpty else {
+                    serviceMessage = "在设置中添加 API Key，即可查看真实余额"
+                    refreshing = false
+                    return
+                }
+                let usage = try await BalanceClient.fetch(site: site, key: key, baseline: baseline)
+                guard !Task.isCancelled, source == .sub2api else { return }
+                withAnimation(animation) { snapshot = usage }
+                serviceMessage = "已连接 · \(URL(string: site)?.host ?? "Sub2API")"
+            } catch {
+                guard !Task.isCancelled else { return }
+                serviceMessage = "\(error.localizedDescription)\(snapshot == nil ? "" : " · 保留上次数据")"
+            }
+            refreshing = false
+        }
+    }
+    @Published var authorizingCredentials = false
+    func authorizeCredentials() {
+        guard !authorizingCredentials else { return }
+        authorizingCredentials = true
+        Task {
+            defer { authorizingCredentials = false }
+            do {
+                if source == .sub2api {
+                    _ = try await Task.detached { try SecureStore.read(allowInteraction: true, useCache: false) }.value
+                    refreshCodex()
+                }
+            } catch { serviceMessage = error.localizedDescription }
+            clineAccount.refresh(allowInteraction: true)
+        }
+    }
+
+    func select(_ provider: Provider) {
+        guard source != provider else { return }
+        refreshTask?.cancel(); refreshing = false; account.stop()
+        source = provider; snapshot = nil; serviceMessage = "正在连接…"
+        UserDefaults.standard.set(provider.rawValue, forKey: "source")
+        refreshCodex()
+    }
+    func reloadSettings() {
+        refreshTask?.cancel(); refreshing = false; snapshot = nil
+        reducedMotion = UserDefaults.standard.bool(forKey: "reducedMotion")
+        hoverEnabled = UserDefaults.standard.object(forKey: "hoverEnabled") as? Bool ?? true
+        account.stop(); account.binaryPath = UserDefaults.standard.string(forKey: "codexBinary") ?? ""
+        startMonitor(); refresh(); geometryChanged?()
+    }
+    func setExpanded(_ value: Bool) {
+        withAnimation(value ? openingAnimation : closingAnimation) { expanded = value }
+    }
+    func hover(_ inside: Bool) {
+        guard hovered != inside else { return }
+        hovered = inside; collapseTask?.cancel()
+        // Geometry changes during the morph must not dismiss its own animation.
+        guard completion == nil else { return }
+        if inside && hoverEnabled {
+            setExpanded(true)
+        } else if !inside && !pinned {
+            // Leaving dismisses even a completion card the user has already hovered.
+            setExpanded(false)
+        }
+    }
+    func scheduleCollapse(after delay: Double = 0) {
+        collapseTask?.cancel()
+        collapseTask = Task {
+            if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
+            guard !Task.isCancelled, !pinned, !hovered, notice == nil, !demo else { return }
+            setExpanded(false)
+        }
+    }
+    func togglePin() { pinned.toggle(); if !pinned { scheduleCollapse() } }
+    func showNotice(_ session: SessionState) {
+        if demo { stopPreview() }
+        if notice != nil {
+            if !noticeQueue.contains(where: { $0.id == session.id && $0.transitionID == session.transitionID }) {
+                noticeQueue.append(session)
+            }
+            return
+        }
+        presentNotice(session)
+    }
+    private func presentNotice(_ session: SessionState, isDemo: Bool = false) {
+        noticeTask?.cancel()
+        notice = session
+        if session.state == .completed {
+            let presentation = CompletionPresentation(isDemo: isDemo,
+                initialWidth: islandWidth, initialHeight: islandHeight, wasExpanded: expanded)
+            // The frame clock owns the whole morph, including returning to the island.
+            completion = presentation
+            expanded = false
+        } else { setExpanded(true) }
+        let duration = session.state == .completed ? (reduceMotion ? CompletionMotion.reducedDuration : CompletionMotion.duration) : 5
+        noticeTask = Task {
+            try? await Task.sleep(for: .seconds(duration))
+            guard !Task.isCancelled else { return }
+            finishNotice()
+        }
+    }
+    private func finishNotice() {
+        let wasDemo = completion?.isDemo == true
+        withAnimation(reduceMotion ? .easeOut(duration: 0.1) : .spring(response: 0.32, dampingFraction: 0.9)) {
+            completion = nil; notice = nil
+            if wasDemo { demo = false }
+            expanded = pinned || (hovered && hoverEnabled)
+        }
+        if !noticeQueue.isEmpty { presentNotice(noticeQueue.removeFirst()) }
+        else { scheduleCollapse() }
+    }
+    private func stopPreview() {
+        demoTask?.cancel(); demo = false
+        if completion?.isDemo == true {
+            noticeTask?.cancel()
+            finishNotice()
+        }
+    }
+    func preview() {
+        demoTask?.cancel()
+        if demo { stopPreview(); scheduleCollapse(); return }
+        guard notice == nil else { return }
+        withAnimation(animation) { demo = true; demoRunning = true }
+        setExpanded(true)
+        demoTask = Task {
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled else { return }
+            withAnimation(animation) { demoRunning = false }
+            var session = SessionState(id: "preview")
+            session.project = "seacoffee"; session.state = .completed
+            presentNotice(session, isDemo: true)
+        }
+    }
+    func openCodex() {
+        let candidates = ["com.openai.codex", "com.openai.Codex", "com.bigpizzav3.codexplusplus", "com.codexhost.app"]
+        if let url = candidates.compactMap({ NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }).first {
+            NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+        } else {
+            serviceMessage = "未找到 Codex 桌面应用，请从 Dock 打开"
+        }
+    }
+}
