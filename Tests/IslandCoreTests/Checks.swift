@@ -18,7 +18,7 @@ func expectNoThrow<T>(_ expression: @autoclosure () throws -> T, file: StaticStr
 @main
 enum Checks {
     static func main() {
-        let cline = ClineTests(); let claude = ClaudeTests(); let grok = GrokTests(); let credentials = CredentialFileTests(); let agents = AgentSessionTests()
+        let cline = ClineTests(); let claude = ClaudeTests(); let grok = GrokTests(); let credentials = CredentialFileTests(); let agents = AgentSessionTests(); let piDesktop = PiDesktopTests()
         let telemetry = TelemetryTests(); let monitor = SessionMonitorTests()
         let checks: [(String, () throws -> Void)] = [
             ("quota color boundaries", {
@@ -79,6 +79,8 @@ enum Checks {
             ("Grok turn outcomes", agents.grokTurns),
             ("Cline session statuses", agents.clineStatuses),
             ("Pi turns, models and Cline Pass channel", agents.piTurns),
+            ("PI-Desktop database: latest turn per session", piDesktop.latestTurnPerSession),
+            ("PI-Desktop database: completion notices", piDesktop.monitorReportsCompletion),
             ("monitor follows Claude, Grok and Cline together", agents.monitorsAllAgents)
         ]
         for (name, check) in checks {

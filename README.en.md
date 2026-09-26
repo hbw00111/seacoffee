@@ -12,7 +12,7 @@ Native SwiftUI + AppKit. No Electron, no third-party runtime dependencies.
 
 ## Features
 
-- **Task status**: follows the local session files of Codex, Claude Code, Grok, Cline, and Pi (including PI-Desktop) and shows how many conversations are running. When a task finishes, the notch plays a checkmark animation labelled with the agent and model that finished it (for example `Claude Code · claude-opus-5-5`). Failures and interruptions show a text notice.
+- **Task status**: follows the local session files of Codex, Claude Code, Grok, Cline, and Pi (including PI-Desktop, which keeps its sessions in SQLite) and shows how many conversations are running. When a task finishes, the notch plays a checkmark animation labelled with the agent and model that finished it (for example `Claude Code · claude-opus-5-5`). Failures and interruptions show a text notice.
 - **Quotas and balances**, each refreshed independently:
 
   | Source | What it shows | How it connects |

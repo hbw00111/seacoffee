@@ -10,8 +10,11 @@ public struct MonitorSnapshot: Sendable {
 public struct SessionSource: Sendable {
     public let agent: Agent
     public let root: URL
-    public init(agent: Agent, path: String) {
+    /// A SQLite database (PI-Desktop) rather than a directory of session files.
+    public let isDatabase: Bool
+    public init(agent: Agent, path: String, isDatabase: Bool = false) {
         self.agent = agent
+        self.isDatabase = isDatabase
         root = URL(fileURLWithPath: NSString(string: path).expandingTildeInPath)
     }
 
@@ -19,7 +22,10 @@ public struct SessionSource: Sendable {
         let paths: [(Agent, String)] = [(.codex, codexPath), (.claude, "~/.claude/projects"),
                                         (.grok, "~/.grok/sessions"), (.cline, "~/.cline/data/sessions"),
                                         (.pi, "~/.pi/agent/sessions")]
-        return paths.filter { enabled.contains($0.0) }.map { SessionSource(agent: $0.0, path: $0.1) }
+        var sources = paths.filter { enabled.contains($0.0) }.map { SessionSource(agent: $0.0, path: $0.1) }
+        // PI-Desktop shares the Pi toggle but stores sessions in its own database.
+        if enabled.contains(.pi) { sources.append(SessionSource(agent: .pi, path: "~/.pi-desktop/pi.sqlite", isDatabase: true)) }
+        return sources
     }
 
     /// Cline rewrites a small JSON document; everyone else appends JSON lines.
@@ -128,6 +134,25 @@ public final class SessionMonitor: @unchecked Sendable {
         var readFailure = false
         var allowed = Set<URL>()
         for source in present {
+            if source.isDatabase {
+                guard let turns = PiDesktopStore.latestTurns(at: source.root, since: now.addingTimeInterval(-172800)) else {
+                    // A locked or migrating database is skipped for this poll, keeping the last states.
+                    allowed.formUnion(cursors.keys.filter { $0.scheme == "pi-desktop" }); continue
+                }
+                for turn in turns {
+                    guard let key = URL(string: "pi-desktop:\(turn.sessionID)") else { continue }
+                    var cursor = cursors[key] ?? Cursor(state: SessionState(id: "pi-desktop:\(turn.sessionID)", agent: source.agent))
+                    let oldTransition = cursor.state.transitionID
+                    cursor.state.consumePiDesktop(turn)
+                    if !firstScan, oldTransition != cursor.state.transitionID,
+                       [.completed, .failed, .interrupted].contains(cursor.state.state), cursor.state.updatedAt >= launchedAt {
+                        finished.append(cursor.state)
+                    }
+                    cursors[key] = cursor
+                    allowed.insert(key)
+                }
+                continue
+            }
             // A resumed conversation continues writing to its original creation-date folder.
             // Discover by modification time across the tree, not by folder date.
             var found: [(URL, Date)] = []

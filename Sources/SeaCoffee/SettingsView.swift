@@ -84,7 +84,7 @@ struct SettingsView: View {
                             }
                             Spacer(minLength: 0)
                         }
-                        caption("Claude Code：~/.claude/projects　Grok：~/.grok/sessions　Cline：~/.cline/data/sessions　Pi / PI-Desktop：~/.pi/agent/sessions")
+                        caption("Claude Code：~/.claude/projects　Grok：~/.grok/sessions　Cline：~/.cline/data/sessions　Pi：~/.pi/agent/sessions　PI-Desktop：~/.pi-desktop/pi.sqlite（只读）")
                         GlassDivider()
                         HStack {
                             Text("当前识别到 \(model.running.count) 个运行中任务").font(.system(size: 12.5))

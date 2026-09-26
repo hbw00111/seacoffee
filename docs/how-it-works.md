@@ -53,9 +53,11 @@
 | Claude Code | `~/.claude/projects/*/*.jsonl` | 用户消息 | `stop_reason: end_turn` | `[Request interrupted by user` / `refusal` |
 | Grok | `~/.grok/sessions/*/*/events.jsonl` | `turn_started` | `turn_ended outcome=completed` | `cancelled` / `error` |
 | Cline | `~/.cline/data/sessions/*/session_*.json` | `starting` / `running` / `pending` / `stopping` | `completed`，或从运行回到 `idle` | `cancelled` / `failed`、`error` |
-| Pi / PI-Desktop | `~/.pi/agent/sessions/*/*.jsonl` | 用户消息，`stopReason: toolUse` | `stopReason: stop`（或 `length`） | `aborted` / `error` |
+| Pi（命令行） | `~/.pi/agent/sessions/*/*.jsonl` | 用户消息，`stopReason: toolUse` | `stopReason: stop`（或 `length`） | `aborted` / `error` |
+| PI-Desktop | `~/.pi-desktop/pi.sqlite` 的 `turns` 表 | `status = running` | `completed` | `aborted` / `error` |
 
 - Claude Code 忽略子代理（`isSidechain`）和 meta 记录，子代理目录中的文件也不单独计数；同一条消息被拆成多行时只计一次完成。
+- PI-Desktop 不写 Pi 的 JSONL，而是存进自己的 SQLite 数据库。Sea Coffee 以只读方式（`mode=ro`，不用 `immutable`，以便看到最新的 WAL 数据）打开，每次只查询每个会话最新一轮的状态、起止时间、模型和项目名，不读取消息内容；数据库被占用时跳过这一轮，不等待 PI-Desktop。运行中的轮次用会话的 `updated_at` 判断是否仍有活动，长时间运行不会被误判为“未知”。
 - Codex 续聊会写回原创建日期的目录，因此按修改时间而非目录日期发现文件。
 - 同时记录最近一次作答的模型名，用于完成提示：Codex 取 `turn_context.payload.model`，Claude Code 取 assistant 消息的 `message.model`（忽略错误占位 `<synthetic>`），Grok 取 `turn_started.model_id`，Cline 取会话文件的 `model`，Pi 取 assistant 消息的 `model`（显示时去掉 `deepseek/` 这类路由前缀）。
 - Pi 可以接入多个渠道。模型前缀为 `cline-pass/` 时，完成提示会注明经由 Cline Pass，例如 `Pi · Cline Pass · glm-5.3-flash`；它消耗的额度计入同一个 Cline Pass 账号，岛上的 Cline 圆环会随之变化。
