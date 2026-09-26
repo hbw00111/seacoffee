@@ -19,7 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
-Provider icons in Sources/SeaCoffee/ServiceIcon.swift are taken from CodexBar
-(https://github.com/steipete/CodexBar), also MIT licensed. The logos remain
-trademarks of their respective owners.
