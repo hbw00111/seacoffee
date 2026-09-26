@@ -316,7 +316,6 @@ struct IslandView: View {
         }
         return "—"
     }
-    private var unit: String { model.displayedSnapshot?.balance != nil ? "USD" : "" }
     private var quotaCaption: String {
         guard let q = model.primary else { return "在设置中连接账号" }
         if q.id == "wallet" { return String(format: "满格基准 $%.0f USD", q.limit) }
@@ -324,26 +323,6 @@ struct IslandView: View {
         if !secondary.isEmpty { return "\(q.label) · \(secondary)" }
         if let reset = q.resetsAt { return "\(q.label) · \(reset.formatted(date: .omitted, time: .shortened)) 恢复" }
         return "\(q.label) · 剩余额度"
-    }
-    private var footnote: String {
-        if model.demo { return "演示数据 · 不影响真实任务" }
-        if let snapshot = model.snapshot, !model.serviceMessage.contains("失败"), !model.serviceMessage.contains("保留") {
-            return "更新于 \(snapshot.fetchedAt.formatted(date: .omitted, time: .shortened))"
-        }
-        return model.snapshot == nil ? "尚未连接额度" : model.serviceMessage
-    }
-    private var statusTint: Color { model.notice?.state == .failed ? .orange : Palette.mint }
-    private var statusIcon: String {
-        if model.demo && !model.demoRunning || model.notice?.state == .completed { return "checkmark" }
-        if model.notice?.state == .failed { return "exclamationmark" }
-        if model.notice?.state == .interrupted { return "pause.fill" }
-        return model.isRunning ? "sparkles" : "moon.stars"
-    }
-    private func iconButton(_ symbol: String, _ help: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 11)).foregroundStyle(Palette.dim)
-                .frame(width: 23, height: 25).contentShape(Rectangle())
-        }.buttonStyle(.plain).help(help).accessibilityLabel(help)
     }
 }
 
@@ -378,20 +357,5 @@ struct QuotaRing: View {
                 Circle().stroke(.white.opacity(0.22), style: StrokeStyle(lineWidth: lineWidth, dash: [2, 5]))
             }
         }.padding(lineWidth / 2)
-    }
-}
-
-struct Waveform: View {
-    var reducedMotion: Bool
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 24, paused: reducedMotion)) { timeline in
-            let time = reducedMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
-            HStack(alignment: .center, spacing: 2.5) {
-                ForEach(0..<4) { index in
-                    Capsule().fill(Palette.mint.opacity(0.8))
-                        .frame(width: 2.5, height: 4 + (sin(time * 3.8 + Double(index) * 1.1) + 1) * 4)
-                }
-            }.frame(maxWidth: .infinity, maxHeight: .infinity)
-        }.accessibilityHidden(true)
     }
 }

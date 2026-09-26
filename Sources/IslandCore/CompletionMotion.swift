@@ -18,7 +18,6 @@ public struct CompletionMotion: Sendable {
     }
     public var returning: Bool { !reduced && elapsed >= 2.85 }
     public var mergeProgress: Double { reduced ? 1 : smooth(0, 0.62) * (1 - smooth(2.85, 0.45)) }
-    public var greenProgress: Double { mergeProgress }
     public var contentOpacity: Double { reduced ? 0 : returning ? smooth(3.06, 0.24) : 1 - smooth(0, 0.16) }
     public var glyphOpacity: Double { reduced ? 1 : smooth(0.48, 0.18) * (1 - smooth(2.83, 0.16)) }
     /// Y-axis rotation, never a flat rotation around the screen's Z axis.

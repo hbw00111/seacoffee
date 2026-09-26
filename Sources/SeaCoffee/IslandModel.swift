@@ -75,7 +75,7 @@ final class IslandModel: ObservableObject {
     private var generation = UUID()
     private var noticeQueue: [SessionState] = []
 
-    var site: String { UserDefaults.standard.string(forKey: "site") ?? "https://coderteam.icu" }
+    var site: String { UserDefaults.standard.string(forKey: "site") ?? "" }
     var baseline: Double { let n = UserDefaults.standard.double(forKey: "baseline"); return n > 0 ? n : 100 }
     var sessionPath: String { UserDefaults.standard.string(forKey: "sessionPath") ?? "~/.codex/sessions" }
     // Four quotas fold into a 2×2 grid, which needs a wider right wing.

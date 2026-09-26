@@ -128,9 +128,6 @@ extension View {
     func glassCard(radius: CGFloat = 16, tint: Color? = nil) -> some View {
         modifier(GlassCard(radius: radius, tint: tint))
     }
-    func liquidGlass<S: InsettableShape>(_ shape: S, tintOpacity: Double = 0.28, blending: GlassBlending = .behindWindow) -> some View {
-        background(GlassSurface(shape: shape, tintOpacity: tintOpacity, blending: blending))
-    }
 }
 
 /// Capsule glass button. `prominent` fills it with a tint, like the system's prominent glass style.

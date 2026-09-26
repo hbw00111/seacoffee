@@ -157,7 +157,7 @@ struct SettingsView: View {
             }
             GlassDivider()
             if model.source == .sub2api {
-                SettingRow("站点地址") { GlassTextField(placeholder: "https://", text: $site).textContentType(.URL) }
+                SettingRow("站点地址") { GlassTextField(placeholder: "https://你的-sub2api-站点", text: $site).textContentType(.URL) }
                 SettingRow("API Key") {
                     HStack(spacing: 8) {
                         GlassTextField(placeholder: hasSavedKey == true ? "输入可替换已有密钥" : "sk-…", text: $key, secure: true)
