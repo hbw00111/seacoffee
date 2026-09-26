@@ -9,6 +9,8 @@ final class GrokAccount: ObservableObject {
     @Published private(set) var enabled: Bool
     @Published private(set) var plan: String?
     @Published private(set) var email: String?
+    /// Outcome of the latest refresh, for the settings button's check or shake.
+    @Published private(set) var lastSucceeded: Bool?
     var onStatus: ((String) -> Void)?
     var onUsage: ((UsageSnapshot) -> Void)?
     var onDisconnect: (() -> Void)?
@@ -60,8 +62,10 @@ final class GrokAccount: ObservableObject {
                     plan = GrokProtocol.plan(data)
                 }
                 onStatus?("已连接 Grok\(plan.map { " · \($0)" } ?? "")")
+                lastSucceeded = true
             } catch is CancellationError {
             } catch {
+                lastSucceeded = false
                 onStatus?(error.localizedDescription)
             }
         }

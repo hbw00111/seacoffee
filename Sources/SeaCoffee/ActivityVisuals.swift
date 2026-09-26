@@ -22,28 +22,86 @@ enum ActivityAppearance: Equatable {
     }
 }
 
+/// Liquid core: one blob per running conversation orbits a centre drop and merges with it
+/// (blurred shapes cut by an alpha threshold, the classic metaball trick). Completion gathers
+/// everything into the centre, failure shivers, idle breathes. Reduce Motion freezes the layout.
 struct ActivityCore: View {
     var state: ActivityAppearance
     var reducedMotion: Bool
     var timeOverride: Double? = nil
+    /// Running conversations; drawn as orbiting blobs, capped so the drop stays legible.
+    var count = 1
+    static let maxBlobs = 4
+    @State private var countChangedAt = Date.distantPast
+    @State private var previousCount = 0
+
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: state != .running || reducedMotion || timeOverride != nil)) { timeline in
-            let time = reducedMotion ? 0 : timeOverride ?? timeline.date.timeIntervalSinceReferenceDate
-            ZStack {
-                if state == .running {
-                    Circle().stroke(state.tint.opacity(0.20), lineWidth: 2)
-                    Circle().trim(from: 0.05, to: 0.78)
-                        .stroke(state.tint, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                        .rotationEffect(.degrees(time.truncatingRemainder(dividingBy: 1.6) / 1.6 * 360))
-                    Circle().fill(state.tint).frame(width: 4, height: 4)
-                } else {
-                    Image(systemName: state == .completed ? "checkmark.circle.fill" : state == .failed ? "exclamationmark.circle.fill" : state == .interrupted ? "pause.circle.fill" : "circle.hexagongrid")
-                        .resizable().scaledToFit().padding(2).foregroundStyle(state.tint)
-                }
+        let animated = !reducedMotion && timeOverride == nil
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: !animated)) { timeline in
+            let time = timeOverride ?? (reducedMotion ? 0.35 : timeline.date.timeIntervalSinceReferenceDate)
+            let since = timeOverride.map { _ in 10 } ?? timeline.date.timeIntervalSince(countChangedAt)
+            Canvas { context, size in
+                draw(&context, size: size, time: time, sinceCountChange: since)
             }
-            .padding(1.5)
+            .shadow(color: state.tint.opacity(state == .idle ? 0 : 0.55), radius: 3.5)
         }
-        .accessibilityLabel(state.label)
+        .onChange(of: count) { old, _ in previousCount = old; countChangedAt = Date() }
+        .accessibilityLabel(state == .running ? "\(state.label)，\(count) 个对话" : state.label)
+    }
+
+    private func draw(_ context: inout GraphicsContext, size: CGSize, time: Double, sinceCountChange: Double) {
+        let side = min(size.width, size.height)
+        let unit = side / 23
+        let center = CGPoint(x: size.width / 2, y: size.height / 2)
+        context.addFilter(.alphaThreshold(min: 0.5, color: state.tint))
+        context.addFilter(.blur(radius: 1.7 * unit))
+        let blobs = orbiting(time: time, sinceCountChange: sinceCountChange)
+        let core = coreRadius(time: time) * unit
+        let shiver = state == .failed || state == .interrupted ? CGFloat(sin(time * 38)) * 0.8 * unit * CGFloat(max(0, 1 - (time.truncatingRemainder(dividingBy: 2.4)) / 0.5)) : 0
+        context.drawLayer { layer in
+            func drop(_ point: CGPoint, _ radius: CGFloat) {
+                layer.fill(Path(ellipseIn: CGRect(x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2)), with: .color(.white))
+            }
+            drop(CGPoint(x: center.x + shiver, y: center.y), core)
+            for blob in blobs {
+                let point = CGPoint(x: center.x + CGFloat(cos(blob.angle)) * blob.distance * unit,
+                                    y: center.y + CGFloat(sin(blob.angle)) * blob.distance * unit)
+                drop(point, blob.radius * unit)
+            }
+        }
+    }
+
+    private func coreRadius(time: Double) -> CGFloat {
+        switch state {
+        case .running: return 4.0
+        case .completed:
+            // A soft bounce once the orbiting drops have been absorbed.
+            let beat = max(0, sin(time * 2 * .pi / 1.8))
+            return 5.4 + CGFloat(beat) * 0.6
+        case .failed, .interrupted: return 5
+        case .idle: return 3.4 + CGFloat((sin(time * 2 * .pi / 3.2) + 1) / 2) * 0.7
+        }
+    }
+
+    private struct Blob { let angle: Double; let distance: CGFloat; let radius: CGFloat }
+
+    private func orbiting(time: Double, sinceCountChange: Double) -> [Blob] {
+        guard state == .running else { return [] }
+        let shown = min(max(count, 1), Self.maxBlobs)
+        // More work turns the drop slightly faster.
+        let period = 2.4 - Double(shown - 1) * 0.2
+        return (0..<shown).map { index in
+            let phase = Double(index) / Double(shown)
+            let angle = (time / period + phase) * 2 * .pi
+            // Each drop drifts in and out: merged near the core, a separate, countable drop outside it.
+            let breathing = sin(time * 2 * .pi / 1.3 + Double(index) * 1.7)
+            var distance = CGFloat(7.2 + breathing * 2.6)
+            // A new conversation grows out of the centre instead of popping in.
+            if index >= previousCount && sinceCountChange < 0.6 {
+                distance *= CGFloat(max(0, sinceCountChange / 0.6))
+            }
+            return Blob(angle: angle, distance: distance, radius: 2.7)
+        }
     }
 }
 

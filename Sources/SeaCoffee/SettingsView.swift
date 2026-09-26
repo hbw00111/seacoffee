@@ -59,10 +59,8 @@ struct SettingsView: View {
                         HStack(alignment: .center, spacing: 14) {
                             caption("API Key 与 Cline 登录保存在仅当前用户可读的本地文件，重新编译或更新后无需重新授权。旧版本存在钥匙串里的凭据，点击右侧按钮授权一次即可导入；Claude Code 的登录属于其他应用，更新后也在这里重新授权。")
                             Spacer(minLength: 0)
-                            Button(model.authorizingCredentials ? "等待系统授权…" : "授权读取已存凭据") {
-                                model.authorizeCredentials()
-                            }
-                            .buttonStyle(GlassButtonStyle())
+                            Button("授权读取已存凭据") { model.authorizeCredentials() }
+                            .buttonStyle(GlassButtonStyle(loading: model.authorizingCredentials))
                             .disabled(model.authorizingCredentials || model.clineAccount.busy || model.claudeAccount.busy)
                         }
                     }
@@ -174,7 +172,7 @@ struct SettingsView: View {
                 SettingRow("") {
                     HStack(spacing: 7) {
                         if saving {
-                            ProgressView().controlSize(.mini)
+                            CometSpinner(size: 11, tint: .white.opacity(0.7))
                         } else {
                             Image(systemName: keyStatusIcon)
                         }
@@ -217,7 +215,7 @@ struct SettingsView: View {
             GlassDivider()
             statusRow {
                 HStack(spacing: 6) {
-                    if model.refreshing { ProgressView().controlSize(.mini) }
+                    if model.refreshing { CometSpinner(size: 11, tint: Palette.mint) }
                     Text(model.refreshing ? "正在查询余额…" : model.serviceMessage)
                         .multilineTextAlignment(.trailing).textSelection(.enabled)
                 }
@@ -227,15 +225,15 @@ struct SettingsView: View {
     private var actionBar: some View {
         HStack(spacing: 12) {
             HStack(spacing: 7) {
-                if saving { ProgressView().controlSize(.small) }
+                if saving { CometSpinner(size: 12, tint: .white.opacity(0.7)) }
                 else if !result.isEmpty { Image(systemName: saved ? "checkmark.circle.fill" : "exclamationmark.circle") }
                 Text(result.isEmpty ? (model.source == .sub2api ? "输入密钥后，点击保存并刷新" : "账号登录会自动保存；其他设置请点击保存") : result)
             }
             .font(.system(size: 11.5)).foregroundStyle(saving ? Color.white.opacity(0.55) : saved ? Palette.mint : result.isEmpty ? .white.opacity(0.55) : .red)
             .lineLimit(2)
             Spacer()
-            Button(saving ? "正在保存…" : "保存并刷新", action: save)
-                .buttonStyle(GlassButtonStyle(prominent: Palette.mint))
+            Button("保存并刷新", action: save)
+                .buttonStyle(GlassButtonStyle(prominent: Palette.mint, loading: saving, succeeded: saved))
                 .keyboardShortcut(.defaultAction)
                 .disabled(saving)
         }
@@ -345,14 +343,18 @@ struct SettingsView: View {
 private struct ClineAccountSettings: View {
     @ObservedObject var account: ClineAccount
     @State private var apiKey = ""
+    private enum Action { case key, login }
+    /// The button the user pressed; background refreshes also set `busy` but must not spin a button.
+    @State private var pending: Action?
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Text("API Key").font(.system(size: 12.5)).foregroundStyle(.white.opacity(0.75)).frame(width: 60, alignment: .leading)
                 GlassTextField(placeholder: account.hasAPIKey ? "已保存 · 输入新 Key 可替换" : "在 app.cline.bot 生成，粘贴到这里",
                                text: $apiKey, secure: true, monospaced: true)
-                Button("保存") { account.setAPIKey(apiKey); apiKey = "" }
-                    .buttonStyle(GlassButtonStyle(prominent: apiKey.isEmpty ? nil : Palette.blue))
+                Button("保存") { pending = .key; account.setAPIKey(apiKey); apiKey = "" }
+                    .buttonStyle(GlassButtonStyle(prominent: apiKey.isEmpty && pending != .key ? nil : Palette.blue,
+                                                  loading: pending == .key && account.busy, succeeded: account.lastSucceeded))
                     .disabled(apiKey.trimmingCharacters(in: .whitespaces).isEmpty || account.busy)
                 Button("移除") { account.setAPIKey("") }.buttonStyle(GlassButtonStyle())
                     .disabled(!account.hasAPIKey || account.busy)
@@ -393,8 +395,9 @@ private struct ClineAccountSettings: View {
                 .glassCard(radius: 12, tint: Palette.blue)
             }
             HStack(spacing: 8) {
-                Button(account.connected ? "重新登录" : "连接 Cline 账号") { account.connect() }
-                    .buttonStyle(GlassButtonStyle(prominent: account.connected ? nil : Palette.blue))
+                Button(account.connected ? "重新登录" : "连接 Cline 账号") { pending = .login; account.connect() }
+                    .buttonStyle(GlassButtonStyle(prominent: account.connected ? nil : Palette.blue,
+                                                  loading: pending == .login && account.busy, succeeded: account.lastSucceeded))
                     .disabled(account.busy)
                 if account.loggingIn {
                     Button("取消登录") { account.stop() }.buttonStyle(GlassButtonStyle())
@@ -402,7 +405,6 @@ private struct ClineAccountSettings: View {
                     Button("退出账号") { account.logout() }.buttonStyle(GlassButtonStyle())
                         .disabled(account.busy || !account.connected)
                 }
-                if account.busy { ProgressView().controlSize(.small) }
                 Spacer(minLength: 0)
                 Link(destination: URL(string: "https://app.cline.bot/dashboard/subscription?personal=true")!) {
                     Label("管理 Cline Pass", systemImage: "arrow.up.right").labelStyle(TrailingIconLabelStyle())
@@ -412,11 +414,13 @@ private struct ClineAccountSettings: View {
             Text("显示 Cline Pass 套餐配额；本机任务状态仍来自 Codex。")
                 .font(.system(size: 11)).foregroundStyle(.white.opacity(0.5))
         }
+        .onChange(of: account.busy) { _, busy in if !busy { pending = nil } }
     }
 }
 
 private struct ClaudeAccountSettings: View {
     @ObservedObject var account: ClaudeAccount
+    @State private var pending = false
     private let accent = ServiceStyle.claude.tint
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -439,12 +443,12 @@ private struct ClaudeAccountSettings: View {
             Text("复用本机 Claude Code 的登录，不需要 API Key。通过系统自带的 security 工具读取“Claude Code-credentials”（Claude Code 也用它写入），不弹窗，重新编译或更新后也不需要再授权；仅当该方式失败时才请求钥匙串授权。只读不写，不会影响 Claude Code 的登录；令牌仅保存在内存，每 2 分钟查询一次。")
                 .font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
-                Button(account.enabled ? "重新读取" : "连接 Claude Code") { account.connect() }
-                    .buttonStyle(GlassButtonStyle(prominent: account.enabled ? nil : accent))
+                Button(account.enabled ? "重新读取" : "连接 Claude Code") { pending = true; account.connect() }
+                    .buttonStyle(GlassButtonStyle(prominent: account.enabled ? nil : accent,
+                                                  loading: pending && account.busy, succeeded: account.lastSucceeded))
                     .disabled(account.busy)
                 Button("停止读取") { account.disconnect() }.buttonStyle(GlassButtonStyle())
                     .disabled(!account.enabled)
-                if account.busy { ProgressView().controlSize(.small) }
                 Spacer(minLength: 0)
                 Link(destination: URL(string: "https://claude.ai/settings/usage")!) {
                     Label("查看 Claude 用量", systemImage: "arrow.up.right").labelStyle(TrailingIconLabelStyle())
@@ -452,11 +456,13 @@ private struct ClaudeAccountSettings: View {
                 .font(.system(size: 11.5, weight: .medium)).foregroundStyle(accent)
             }
         }
+        .onChange(of: account.busy) { _, busy in if !busy { pending = false } }
     }
 }
 
 private struct GrokAccountSettings: View {
     @ObservedObject var account: GrokAccount
+    @State private var pending = false
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
@@ -478,15 +484,16 @@ private struct GrokAccountSettings: View {
             Text("复用 grok login 写入的 ~/.grok/auth.json，不需要 API Key，也不会弹出钥匙串授权。只读不写；Grok 令牌有效期较短，过期时在终端运行一次 grok 即可续期。每 2 分钟查询一次。")
                 .font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
-                Button(account.enabled ? "立即刷新" : "连接 Grok") { account.connect() }
-                    .buttonStyle(GlassButtonStyle(prominent: account.enabled ? nil : ServiceStyle.grok.tint))
+                Button(account.enabled ? "立即刷新" : "连接 Grok") { pending = true; account.connect() }
+                    .buttonStyle(GlassButtonStyle(prominent: account.enabled ? nil : ServiceStyle.grok.tint,
+                                                  loading: pending && account.busy, succeeded: account.lastSucceeded))
                     .disabled(account.busy)
                 Button("停止读取") { account.disconnect() }.buttonStyle(GlassButtonStyle())
                     .disabled(!account.enabled)
-                if account.busy { ProgressView().controlSize(.small) }
                 Spacer(minLength: 0)
             }
         }
+        .onChange(of: account.busy) { _, busy in if !busy { pending = false } }
     }
 }
 

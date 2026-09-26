@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import IslandCore
 
@@ -20,6 +21,8 @@ struct PlanLane: Identifiable {
     let snapshot: UsageSnapshot?
     let stale: Bool
     let message: String
+    /// A first fetch is in flight with nothing to show yet.
+    var loading = false
     var primary: Quota? { snapshot?.quotas.first }
 }
 
@@ -74,6 +77,7 @@ final class IslandModel: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var generation = UUID()
     private var noticeQueue: [SessionState] = []
+    private var accountObservers: [AnyCancellable] = []
 
     var site: String { UserDefaults.standard.string(forKey: "site") ?? "" }
     var baseline: Double { let n = UserDefaults.standard.double(forKey: "baseline"); return n > 0 ? n : 100 }
@@ -139,12 +143,15 @@ final class IslandModel: ObservableObject {
     var showsGrok: Bool { demo || grokAccount.enabled || grokSnapshot != nil }
     var grokIsStale: Bool { !demo && grokSnapshot.map { Date().timeIntervalSince($0.fetchedAt) > 300 } == true }
     var planLanes: [PlanLane] {
-        var lanes = [PlanLane(id: "CL", title: "Cline Pass", snapshot: displayedClineSnapshot, stale: clineIsStale, message: clineMessage)]
+        var lanes = [PlanLane(id: "CL", title: "Cline Pass", snapshot: displayedClineSnapshot, stale: clineIsStale, message: clineMessage,
+                              loading: clineAccount.busy && clineSnapshot == nil)]
         if showsClaude {
-            lanes.append(PlanLane(id: "CC", title: "Claude", snapshot: displayedClaudeSnapshot, stale: claudeIsStale, message: claudeMessage))
+            lanes.append(PlanLane(id: "CC", title: "Claude", snapshot: displayedClaudeSnapshot, stale: claudeIsStale, message: claudeMessage,
+                                  loading: claudeAccount.busy && claudeSnapshot == nil))
         }
         if showsGrok {
-            lanes.append(PlanLane(id: "GK", title: "Grok", snapshot: displayedGrokSnapshot, stale: grokIsStale, message: grokMessage))
+            lanes.append(PlanLane(id: "GK", title: "Grok", snapshot: displayedGrokSnapshot, stale: grokIsStale, message: grokMessage,
+                                  loading: grokAccount.busy && grokSnapshot == nil))
         }
         return lanes
     }
@@ -209,6 +216,10 @@ final class IslandModel: ObservableObject {
         }
         clineAccount.onLogout = { [weak self] in
             self?.clineSnapshot = nil
+        }
+        // Account busy flags drive the island's loading placeholders.
+        for publisher in [clineAccount.objectWillChange, claudeAccount.objectWillChange, grokAccount.objectWillChange] {
+            accountObservers.append(publisher.sink { [weak self] _ in self?.objectWillChange.send() })
         }
         claudeAccount.onStatus = { [weak self] text in
             self?.claudeMessage = text

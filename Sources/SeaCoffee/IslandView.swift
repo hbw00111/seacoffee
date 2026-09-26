@@ -140,9 +140,11 @@ struct IslandView: View {
     private var header: some View {
         HStack(spacing: 0) {
             HStack(spacing: 3) {
-                ActivityCore(state: model.activityAppearance, reducedMotion: model.reduceMotion)
-                    .frame(width: 23, height: 23)
-                if model.activeConversationCount > 0 {
+                ActivityCore(state: model.activityAppearance, reducedMotion: model.reduceMotion,
+                             count: model.activeConversationCount)
+                    .frame(width: 26, height: 26)
+                // The drops already show up to four conversations; only larger counts need a number.
+                if model.activeConversationCount > ActivityCore.maxBlobs {
                     Text(model.activeConversationCount > 99 ? "99+" : "\(model.activeConversationCount)")
                         .font(.system(size: 11, weight: .semibold, design: .rounded)).monospacedDigit()
                         .foregroundStyle(model.activityAppearance.tint)
@@ -192,8 +194,12 @@ struct IslandView: View {
                             .font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.dim)
                         if model.demo { demoBadge }
                     }
-                    Text(amount).font(.system(size: model.primary == nil ? 23 : 28, weight: .medium, design: .rounded))
-                        .tracking(-0.5).contentTransition(.numericText()).foregroundStyle(.white.opacity(0.96))
+                    if model.refreshing && model.displayedSnapshot == nil {
+                        SkeletonBar(width: 112, height: 24).padding(.vertical, 5)
+                    } else {
+                        Text(amount).font(.system(size: model.primary == nil ? 23 : 28, weight: .medium, design: .rounded))
+                            .tracking(-0.5).contentTransition(.numericText()).foregroundStyle(.white.opacity(0.96))
+                    }
                     Text(quotaCaption).font(.system(size: 10)).foregroundStyle(Palette.dim).lineLimit(1)
                 }
                 Spacer(minLength: 0)
@@ -217,8 +223,9 @@ struct IslandView: View {
             .frame(height: 72)
 
             HStack(spacing: 10) {
-                ActivityCore(state: model.activityAppearance, reducedMotion: model.reduceMotion)
-                    .frame(width: 24, height: 24)
+                ActivityCore(state: model.activityAppearance, reducedMotion: model.reduceMotion,
+                             count: model.activeConversationCount)
+                    .frame(width: 26, height: 26)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(model.statusTitle).font(.system(size: 11, weight: .medium)).foregroundStyle(.white.opacity(0.93))
                     Text(model.statusDetail).font(.system(size: 9)).foregroundStyle(Palette.dim).lineLimit(1)
@@ -275,9 +282,13 @@ struct IslandView: View {
                     if model.demo && !compact { demoBadge }
                     if compact { Spacer(minLength: 0); ring.frame(width: 15, height: 15) }
                 }
-                Text(primary.map { "\($0.percent)%" } ?? "未连接")
-                    .font(.system(size: primary == nil ? 15 : 19, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.96)).contentTransition(.numericText())
+                if lane.loading {
+                    SkeletonBar(width: compact ? 44 : 52, height: 17).padding(.vertical, 3)
+                } else {
+                    Text(primary.map { "\($0.percent)%" } ?? "未连接")
+                        .font(.system(size: primary == nil ? 15 : 19, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.96)).contentTransition(.numericText())
+                }
                 Text(primary.map { first in
                     ([first.label] + (lane.snapshot?.quotas.dropFirst().prefix(1).map { "\($0.label) \($0.percent)%" } ?? [])).joined(separator: " · ")
                 } ?? lane.message)
@@ -297,15 +308,19 @@ struct IslandView: View {
     /// `nil` is the Codex / API lane; the rest are subscription lanes.
     private func compactItem(_ lane: PlanLane?) -> some View {
         compactQuota(ServiceStyle(laneID: lane?.id), title: lane?.title ?? model.source.title,
-                     quota: lane.map(\.primary) ?? model.primary, stale: lane?.stale ?? model.isStale)
+                     quota: lane.map(\.primary) ?? model.primary, stale: lane?.stale ?? model.isStale,
+                     loading: lane?.loading ?? (model.refreshing && model.displayedSnapshot == nil))
     }
-    private func compactQuota(_ style: ServiceStyle, title: String, quota: Quota?, stale: Bool) -> some View {
+    private func compactQuota(_ style: ServiceStyle, title: String, quota: Quota?, stale: Bool, loading: Bool = false) -> some View {
         HStack(spacing: 4) {
             style.icon.resizable().aspectRatio(contentMode: .fit)
                 .foregroundStyle(style.tint.opacity(0.95))
                 .frame(width: 11, height: 11)
-            QuotaRing(fraction: quota?.fraction, lineWidth: 1.5, stale: stale, reducedMotion: model.reduceMotion)
-                .frame(width: 10, height: 10)
+            Group {
+                if loading { CometSpinner(size: 10, lineWidth: 1.5, tint: style.tint) }
+                else { QuotaRing(fraction: quota?.fraction, lineWidth: 1.5, stale: stale, reducedMotion: model.reduceMotion) }
+            }
+            .frame(width: 10, height: 10)
             Text(quota.map { "\($0.percent)%" } ?? "—")
                 .font(.system(size: 9, weight: .medium, design: .rounded)).monospacedDigit()
                 .foregroundStyle(.white.opacity(0.85))

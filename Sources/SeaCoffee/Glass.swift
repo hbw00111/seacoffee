@@ -135,8 +135,13 @@ struct GlassButtonStyle: ButtonStyle {
     var prominent: Color? = nil
     var compact = false
     var circle = false
+    /// While true the label is swapped for a spinner at the same size.
+    var loading = false
+    /// Read when loading ends: true shows a check, false shakes the button, nil does neither.
+    var succeeded: Bool? = nil
     func makeBody(configuration: Configuration) -> some View {
-        GlassButtonBody(configuration: configuration, prominent: prominent, compact: compact, circle: circle)
+        GlassButtonBody(configuration: configuration, prominent: prominent, compact: compact, circle: circle,
+                        loading: loading, succeeded: succeeded)
     }
 }
 
@@ -145,14 +150,36 @@ private struct GlassButtonBody: View {
     let prominent: Color?
     let compact: Bool
     let circle: Bool
+    let loading: Bool
+    let succeeded: Bool?
     @Environment(\.isEnabled) private var enabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovering = false
+    @State private var showingSuccess = false
+    @State private var shakes: CGFloat = 0
+    @State private var bounce = 0
     var body: some View {
         let height: CGFloat = compact ? 24 : 30
         let shape = RoundedRectangle(cornerRadius: height / 2, style: .continuous)
+        let ink = prominent == nil ? Color.white.opacity(0.9) : Color.black.opacity(0.82)
+        let covered = loading || showingSuccess
         configuration.label
             .font(.system(size: compact ? 11 : 12.5, weight: prominent == nil ? .medium : .semibold))
-            .foregroundStyle(prominent == nil ? Color.white.opacity(0.9) : Color.black.opacity(0.82))
+            .foregroundStyle(ink)
+            // The label keeps its space, so the button never changes width while it loads.
+            .opacity(covered ? 0 : 1)
+            .blur(radius: covered ? 2.5 : 0)
+            .overlay {
+                if loading {
+                    CometSpinner(size: compact ? 12 : 14, tint: ink)
+                        .transition(.opacity.combined(with: .scale(scale: 0.6)))
+                } else if showingSuccess {
+                    Image(systemName: "checkmark").font(.system(size: compact ? 11 : 12.5, weight: .bold))
+                        .foregroundStyle(ink)
+                        .symbolEffect(.bounce, value: bounce)
+                        .transition(.opacity.combined(with: .scale(scale: 0.6)))
+                }
+            }
             .padding(.horizontal, circle ? 0 : compact ? 10 : 14)
             .frame(width: circle ? height : nil, height: height)
             .background {
@@ -168,10 +195,23 @@ private struct GlassButtonBody: View {
             .contentShape(shape)
             .scaleEffect(configuration.isPressed ? 0.95 : 1)
             .brightness(configuration.isPressed ? -0.05 : 0)
-            .opacity(enabled ? 1 : 0.42)
+            .modifier(ShakeEffect(shakes: shakes))
+            // A loading button stays fully opaque even though its action is disabled.
+            .opacity(enabled || loading ? 1 : 0.42)
+            .allowsHitTesting(!loading)
             .animation(.spring(response: 0.24, dampingFraction: 0.7), value: configuration.isPressed)
             .animation(.easeOut(duration: 0.15), value: hovering)
+            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: covered)
             .onHover { hovering = $0 }
+            .onChange(of: loading) { wasLoading, isLoading in
+                guard wasLoading, !isLoading else { return }
+                if succeeded == true {
+                    showingSuccess = true; bounce += 1
+                    Task { try? await Task.sleep(for: .seconds(1.1)); showingSuccess = false }
+                } else if succeeded == false, !reduceMotion {
+                    withAnimation(.linear(duration: 0.42)) { shakes += 1 }
+                }
+            }
     }
 }
 

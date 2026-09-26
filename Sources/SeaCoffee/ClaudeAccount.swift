@@ -8,6 +8,8 @@ final class ClaudeAccount: ObservableObject {
     @Published private(set) var busy = false
     @Published private(set) var enabled: Bool
     @Published private(set) var plan: String?
+    /// Outcome of the latest refresh, for the settings button's check or shake.
+    @Published private(set) var lastSucceeded: Bool?
     var onStatus: ((String) -> Void)?
     var onUsage: ((UsageSnapshot) -> Void)?
     var onDisconnect: (() -> Void)?
@@ -62,12 +64,15 @@ final class ClaudeAccount: ObservableObject {
                     current = try await loadCredentials(allowInteraction: allowInteraction)
                     try await fetchUsage(current)
                 }
+                lastSucceeded = true
             } catch is CancellationError {
             } catch let error as ClaudeError {
+                lastSucceeded = false
                 if case .rateLimited(let until) = error { blockedUntil = until ?? Date().addingTimeInterval(300) }
                 if error == .signedOut || error == .expired { credentials = nil }
                 onStatus?(error.localizedDescription)
             } catch {
+                lastSucceeded = false
                 onStatus?(error.localizedDescription)
             }
         }

@@ -34,6 +34,8 @@ final class ClineAccount: ObservableObject {
     @Published private(set) var email: String?
     @Published private(set) var connected = false
     @Published private(set) var hasAPIKey = false
+    /// Outcome of the latest operation, for the settings button's check or shake.
+    @Published private(set) var lastSucceeded: Bool?
     var onStatus: ((String) -> Void)?
     var onUsage: ((UsageSnapshot) -> Void)?
     var onLogout: (() -> Void)?
@@ -147,13 +149,15 @@ final class ClineAccount: ObservableObject {
             defer {
                 busy = false; loggingIn = false; userCode = nil; verificationURL = nil; task = nil
             }
-            do { try await operation() }
-            catch is CancellationError { onStatus?("操作已取消") }
+            do { try await operation(); lastSucceeded = true }
+            catch is CancellationError { lastSucceeded = nil; onStatus?("操作已取消") }
             catch ClineError.signedOut {
+                lastSucceeded = false
                 connected = false
                 onStatus?(ClineError.signedOut.localizedDescription)
             }
             catch {
+                lastSucceeded = Task.isCancelled ? nil : false
                 if Task.isCancelled { onStatus?("操作已取消") }
                 else { onStatus?(error.localizedDescription) }
             }

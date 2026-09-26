@@ -43,10 +43,8 @@ private struct MotionPreviewFrame: View {
                 caption: CompletionCaption(style: .codex, text: "Codex · gpt-6-sol")) {
                     HStack(spacing: 0) {
                         HStack(spacing: 3) {
-                            ActivityCore(state: .running, reducedMotion: false, timeOverride: elapsed)
-                                .frame(width: 23, height: 23)
-                            Text(elapsed < 0.55 ? "3" : "2").font(.system(size: 11, weight: .semibold, design: .rounded))
-                                .foregroundStyle(ActivityAppearance.running.tint)
+                            ActivityCore(state: .running, reducedMotion: false, timeOverride: elapsed, count: elapsed < 0.55 ? 3 : 2)
+                                .frame(width: 26, height: 26)
                         }.frame(width: 56)
                         Color.clear.frame(width: 179)
                         HStack(spacing: 4) {
