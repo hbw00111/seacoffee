@@ -34,22 +34,36 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 22) {
                     header
                     codexSection
-                    GlassSection(title: "Cline Pass · 独立连接", symbol: "circle.dotted.circle", tint: Palette.blue) {
+                    GlassSection(title: "Cline Pass · 独立连接", icon: ServiceStyle.cline.icon, tint: ServiceStyle.cline.tint) {
                         ClineAccountSettings(account: model.clineAccount)
                         GlassDivider()
                         statusRow {
                             Text(model.clineMessage).multilineTextAlignment(.trailing).textSelection(.enabled)
                         }
                     }
-                    GlassSection(title: "钥匙串访问", symbol: "key.fill", tint: Color(red: 1, green: 0.79, blue: 0.26)) {
+                    GlassSection(title: "Claude · 读取 Claude Code 登录", icon: ServiceStyle.claude.icon, tint: ServiceStyle.claude.tint) {
+                        ClaudeAccountSettings(account: model.claudeAccount)
+                        GlassDivider()
+                        statusRow {
+                            Text(model.claudeMessage).multilineTextAlignment(.trailing).textSelection(.enabled)
+                        }
+                    }
+                    GlassSection(title: "Grok · 读取 Grok CLI 登录", icon: ServiceStyle.grok.icon, tint: ServiceStyle.grok.tint) {
+                        GrokAccountSettings(account: model.grokAccount)
+                        GlassDivider()
+                        statusRow {
+                            Text(model.grokMessage).multilineTextAlignment(.trailing).textSelection(.enabled)
+                        }
+                    }
+                    GlassSection(title: "凭据存储", symbol: "key.fill", tint: Color(red: 1, green: 0.79, blue: 0.26)) {
                         HStack(alignment: .center, spacing: 14) {
-                            caption("后台刷新不弹密码框。授权后，本次运行会复用凭据；如系统提供“始终允许”，可用它保存此次授权。")
+                            caption("API Key 与 Cline 登录保存在仅当前用户可读的本地文件，重新编译或更新后无需重新授权。旧版本存在钥匙串里的凭据，点击右侧按钮授权一次即可导入；Claude Code 的登录属于其他应用，更新后也在这里重新授权。")
                             Spacer(minLength: 0)
                             Button(model.authorizingCredentials ? "等待系统授权…" : "授权读取已存凭据") {
                                 model.authorizeCredentials()
                             }
                             .buttonStyle(GlassButtonStyle())
-                            .disabled(model.authorizingCredentials || model.clineAccount.busy)
+                            .disabled(model.authorizingCredentials || model.clineAccount.busy || model.claudeAccount.busy)
                         }
                     }
                     GlassSection(title: "任务状态", symbol: "waveform.path", tint: ActivityAppearance.running.tint) {
@@ -121,7 +135,7 @@ struct SettingsView: View {
         .padding(.leading, 4)
     }
     private var codexSection: some View {
-        GlassSection(title: "Codex 账号与额度", symbol: "circle.dotted.circle", tint: Palette.mint) {
+        GlassSection(title: "Codex 账号与额度", icon: ServiceStyle.codex.icon, tint: ServiceStyle.codex.tint) {
             SettingRow("接入方式") {
                 GlassSegmented(options: Provider.allCases, selection: Binding(get: { model.source }, set: { model.select($0) })) { $0.title }
             }
@@ -237,11 +251,11 @@ struct SettingsView: View {
         keyError = false; keyResult = ""; saved = false; result = ""
     }
     private var keyStatusText: String {
-        if saving { return "正在保存到钥匙串…" }
+        if saving { return "正在保存…" }
         if !draftKey.isEmpty { return keyError ? keyResult : "已输入 API Key · 尚未保存" }
         if deleteKey { return "待移除 · 点击保存后生效" }
         if !keyResult.isEmpty { return keyResult }
-        if hasSavedKey == true { return "已保存到钥匙串 · 留空将继续使用已有密钥" }
+        if hasSavedKey == true { return "已保存到本机 · 留空将继续使用已有密钥" }
         if hasSavedKey == false { return "尚未保存 API Key" }
         return "正在检查已保存的密钥…"
     }
@@ -260,7 +274,7 @@ struct SettingsView: View {
             let present = try await Task.detached { try SecureStore.containsKey() }.value
             hasSavedKey = present
         } catch {
-            if draftKey.isEmpty && !saving { keyError = true; keyResult = "无法确认已有密钥，请检查钥匙串访问权限" }
+            if draftKey.isEmpty && !saving { keyError = true; keyResult = "无法确认已有密钥，请点击“授权读取已存凭据”" }
         }
     }
     private func save() {
@@ -296,10 +310,10 @@ struct SettingsView: View {
                     if let present {
                         hasSavedKey = present
                         key = ""; deleteKey = false
-                        keyResult = removing ? "API Key 已移除" : present ? "API Key 已保存到钥匙串" : "尚未保存 API Key"
+                        keyResult = removing ? "API Key 已移除" : present ? "API Key 已保存到本机" : "尚未保存 API Key"
                     }
                     saved = true; saving = false
-                    result = removing ? "密钥已移除，设置已保存" : !submittedKey.isEmpty ? "API Key 保存成功，已确认写入钥匙串" : "设置已保存"
+                    result = removing ? "密钥已移除，设置已保存" : !submittedKey.isEmpty ? "API Key 保存成功，已确认写入本机凭据文件" : "设置已保存"
                     model.reloadSettings()
                 } catch {
                     saving = false; saved = false; keyError = updatingKey
@@ -332,7 +346,7 @@ private struct ClineAccountSettings: View {
                         .overlay(GlassRim(shape: Capsule(), intensity: 0.5))
                 }
             }
-            Text("在浏览器确认设备码后完成登录。登录凭据保存在 macOS 钥匙串，自动刷新套餐配额。")
+            Text("在浏览器确认设备码后完成登录。登录凭据保存在仅当前用户可读的本地文件，自动刷新套餐配额。")
                 .font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true)
             if let code = account.userCode {
                 HStack(spacing: 10) {
@@ -371,6 +385,85 @@ private struct ClineAccountSettings: View {
     }
 }
 
+private struct ClaudeAccountSettings: View {
+    @ObservedObject var account: ClaudeAccount
+    private let accent = ServiceStyle.claude.tint
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("显示 Claude 订阅的 5 小时与每周额度").font(.system(size: 12.5, weight: .medium))
+                    if let plan = account.plan {
+                        Text(plan).font(.system(size: 11, weight: .medium)).foregroundStyle(accent)
+                    }
+                }
+                Spacer(minLength: 0)
+                if account.enabled {
+                    Label("已启用", systemImage: "checkmark.circle.fill").font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(Palette.mint)
+                        .padding(.horizontal, 9).frame(height: 22)
+                        .background(Capsule().fill(Palette.mint.opacity(0.12)))
+                        .overlay(GlassRim(shape: Capsule(), intensity: 0.5))
+                }
+            }
+            Text("复用本机 Claude Code 的登录，不需要 API Key。首次连接时 macOS 会询问是否允许读取“Claude Code-credentials”，选“始终允许”后后台刷新不再弹窗。只读不写，不会影响 Claude Code 的登录；令牌仅保存在内存，每 2 分钟查询一次。")
+                .font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Button(account.enabled ? "重新读取" : "连接 Claude Code") { account.connect() }
+                    .buttonStyle(GlassButtonStyle(prominent: account.enabled ? nil : accent))
+                    .disabled(account.busy)
+                Button("停止读取") { account.disconnect() }.buttonStyle(GlassButtonStyle())
+                    .disabled(!account.enabled)
+                if account.busy { ProgressView().controlSize(.small) }
+                Spacer(minLength: 0)
+                Link(destination: URL(string: "https://claude.ai/settings/usage")!) {
+                    Label("查看 Claude 用量", systemImage: "arrow.up.right").labelStyle(TrailingIconLabelStyle())
+                }
+                .font(.system(size: 11.5, weight: .medium)).foregroundStyle(accent)
+            }
+        }
+    }
+}
+
+private struct GrokAccountSettings: View {
+    @ObservedObject var account: GrokAccount
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("显示 SuperGrok 本期额度").font(.system(size: 12.5, weight: .medium))
+                    if let detail = [account.plan, account.email].compactMap({ $0 }).joined(separator: " · ").nilIfEmpty {
+                        Text(detail).font(.system(size: 11, weight: .medium)).foregroundStyle(.white.opacity(0.8)).textSelection(.enabled)
+                    }
+                }
+                Spacer(minLength: 0)
+                if account.enabled {
+                    Label("已启用", systemImage: "checkmark.circle.fill").font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(Palette.mint)
+                        .padding(.horizontal, 9).frame(height: 22)
+                        .background(Capsule().fill(Palette.mint.opacity(0.12)))
+                        .overlay(GlassRim(shape: Capsule(), intensity: 0.5))
+                }
+            }
+            Text("复用 grok login 写入的 ~/.grok/auth.json，不需要 API Key，也不会弹出钥匙串授权。只读不写；Grok 令牌有效期较短，过期时在终端运行一次 grok 即可续期。每 2 分钟查询一次。")
+                .font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Button(account.enabled ? "立即刷新" : "连接 Grok") { account.connect() }
+                    .buttonStyle(GlassButtonStyle(prominent: account.enabled ? nil : ServiceStyle.grok.tint))
+                    .disabled(account.busy)
+                Button("停止读取") { account.disconnect() }.buttonStyle(GlassButtonStyle())
+                    .disabled(!account.enabled)
+                if account.busy { ProgressView().controlSize(.small) }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
 private struct TrailingIconLabelStyle: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
         HStack(spacing: 3) { configuration.title; configuration.icon.imageScale(.small) }
@@ -393,13 +486,19 @@ private struct SettingsBackdrop: View {
 
 private struct GlassSection<Content: View>: View {
     let title: String
-    let symbol: String
+    var symbol: String = ""
+    /// A service mark; takes precedence over `symbol`.
+    var icon: Image? = nil
     var tint: Color = Palette.mint
     @ViewBuilder var content: Content
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Image(systemName: symbol).font(.system(size: 10.5, weight: .bold)).foregroundStyle(tint)
+                Group {
+                    if let icon { icon.resizable().aspectRatio(contentMode: .fit).frame(width: 12, height: 12) }
+                    else { Image(systemName: symbol).font(.system(size: 10.5, weight: .bold)) }
+                }
+                    .foregroundStyle(tint)
                     .frame(width: 24, height: 24)
                     .background(Circle().fill(tint.opacity(0.15)))
                     .overlay(GlassRim(shape: Circle(), intensity: 0.6))

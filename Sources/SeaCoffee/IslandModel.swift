@@ -13,6 +13,16 @@ enum Provider: String, CaseIterable, Identifiable {
     }
 }
 
+/// One subscription shown in the island: Cline Pass, and Claude / Grok once enabled.
+struct PlanLane: Identifiable {
+    let id: String
+    let title: String
+    let snapshot: UsageSnapshot?
+    let stale: Bool
+    let message: String
+    var primary: Quota? { snapshot?.quotas.first }
+}
+
 struct CompletionPresentation: Identifiable {
     let id = UUID()
     let startedAt = Date()
@@ -34,6 +44,10 @@ final class IslandModel: ObservableObject {
     @Published var snapshot: UsageSnapshot?
     @Published var clineSnapshot: UsageSnapshot?
     @Published var clineMessage = "请连接 Cline 账号"
+    @Published var claudeSnapshot: UsageSnapshot?
+    @Published var claudeMessage = "请在设置中连接 Claude Code"
+    @Published var grokSnapshot: UsageSnapshot?
+    @Published var grokMessage = "请在设置中连接 Grok"
     @Published var serviceMessage = "在设置中添加 API Key，即可查看真实余额"
     @Published var monitorMessage: String?
     @Published var sessions: [SessionState] = []
@@ -48,6 +62,8 @@ final class IslandModel: ObservableObject {
     var geometryChanged: (() -> Void)?
     let account = OfficialAccount()
     let clineAccount = ClineAccount()
+    let claudeAccount = ClaudeAccount()
+    let grokAccount = GrokAccount()
     private var monitor: SessionMonitor?
     private var refreshTimer: Timer?
     private var collapseTask: Task<Void, Never>?
@@ -60,7 +76,8 @@ final class IslandModel: ObservableObject {
     var site: String { UserDefaults.standard.string(forKey: "site") ?? "https://coderteam.icu" }
     var baseline: Double { let n = UserDefaults.standard.double(forKey: "baseline"); return n > 0 ? n : 100 }
     var sessionPath: String { UserDefaults.standard.string(forKey: "sessionPath") ?? "~/.codex/sessions" }
-    var compactWidth: CGFloat { max(290, notchWidth + 180) }
+    // Four quotas fold into a 2×2 grid, which needs a wider right wing.
+    var compactWidth: CGFloat { max(290, notchWidth + (planLanes.count >= 3 ? 250 : 180)) }
     var headerHeight: CGFloat { hasNotch ? max(24, notchHeight) : 32 }
     var completionWidth: CGFloat { hasNotch ? notchWidth : 180 }
     var islandWidth: CGFloat { completion != nil ? completionWidth : expanded ? max(360, compactWidth) : compactWidth }
@@ -104,7 +121,31 @@ final class IslandModel: ObservableObject {
             Quota(id: "monthly", label: "每月", remaining: 48, limit: 100, monetary: false)
         ], source: "Cline Pass") : clineSnapshot
     }
-    var clinePrimary: Quota? { displayedClineSnapshot?.quotas.first }
+    var displayedClaudeSnapshot: UsageSnapshot? {
+        demo ? UsageSnapshot(quotas: [
+            Quota(id: "claude-five_hour", label: "5 小时", remaining: 58, limit: 100, monetary: false),
+            Quota(id: "claude-seven_day", label: "每周", remaining: 83, limit: 100, monetary: false)
+        ], source: "Claude") : claudeSnapshot
+    }
+    var showsClaude: Bool { demo || claudeAccount.enabled || claudeSnapshot != nil }
+    // Claude polls every two minutes, so allow one missed refresh before dimming.
+    var claudeIsStale: Bool { !demo && claudeSnapshot.map { Date().timeIntervalSince($0.fetchedAt) > 300 } == true }
+    var displayedGrokSnapshot: UsageSnapshot? {
+        demo ? UsageSnapshot(quotas: [Quota(id: "grok-credits", label: "每周", remaining: 90, limit: 100, monetary: false)],
+                             source: "Grok") : grokSnapshot
+    }
+    var showsGrok: Bool { demo || grokAccount.enabled || grokSnapshot != nil }
+    var grokIsStale: Bool { !demo && grokSnapshot.map { Date().timeIntervalSince($0.fetchedAt) > 300 } == true }
+    var planLanes: [PlanLane] {
+        var lanes = [PlanLane(id: "CL", title: "Cline Pass", snapshot: displayedClineSnapshot, stale: clineIsStale, message: clineMessage)]
+        if showsClaude {
+            lanes.append(PlanLane(id: "CC", title: "Claude", snapshot: displayedClaudeSnapshot, stale: claudeIsStale, message: claudeMessage))
+        }
+        if showsGrok {
+            lanes.append(PlanLane(id: "GK", title: "Grok", snapshot: displayedGrokSnapshot, stale: grokIsStale, message: grokMessage))
+        }
+        return lanes
+    }
     var clineIsStale: Bool { !demo && clineSnapshot.map { Date().timeIntervalSince($0.fetchedAt) > 180 } == true }
     var primary: Quota? { displayedSnapshot?.quotas.first }
     var isStale: Bool { !demo && snapshot.map { Date().timeIntervalSince($0.fetchedAt) > 180 } == true }
@@ -143,6 +184,26 @@ final class IslandModel: ObservableObject {
         clineAccount.onLogout = { [weak self] in
             self?.clineSnapshot = nil
         }
+        claudeAccount.onStatus = { [weak self] text in
+            self?.claudeMessage = text
+        }
+        claudeAccount.onUsage = { [weak self] usage in
+            guard let self else { return }
+            withAnimation(self.animation) { self.claudeSnapshot = usage }
+        }
+        claudeAccount.onDisconnect = { [weak self] in
+            self?.claudeSnapshot = nil
+        }
+        grokAccount.onStatus = { [weak self] text in
+            self?.grokMessage = text
+        }
+        grokAccount.onUsage = { [weak self] usage in
+            guard let self else { return }
+            withAnimation(self.animation) { self.grokSnapshot = usage }
+        }
+        grokAccount.onDisconnect = { [weak self] in
+            self?.grokSnapshot = nil
+        }
         account.onStatus = { [weak self] text in
             guard self?.source == .official else { return }
             self?.serviceMessage = text; self?.refreshing = false
@@ -160,7 +221,7 @@ final class IslandModel: ObservableObject {
         }
     }
     func stop() {
-        monitor?.stop(); refreshTimer?.invalidate(); account.stop(); clineAccount.stop()
+        monitor?.stop(); refreshTimer?.invalidate(); account.stop(); clineAccount.stop(); claudeAccount.stop(); grokAccount.stop()
         collapseTask?.cancel(); noticeTask?.cancel(); demoTask?.cancel(); refreshTask?.cancel()
     }
     func startMonitor() {
@@ -177,8 +238,10 @@ final class IslandModel: ObservableObject {
         monitor?.start()
     }
     func refresh() {
-        // Independent lanes: an API request or Keychain prompt must not block Cline.
+        // Independent lanes: an API request or Keychain prompt must not block the other services.
         clineAccount.refresh()
+        claudeAccount.refresh()
+        grokAccount.refresh()
         refreshCodex()
     }
     private func refreshCodex() {
@@ -188,7 +251,7 @@ final class IslandModel: ObservableObject {
         let site = site, baseline = baseline
         refreshTask = Task {
             do {
-                // Keychain may wait for macOS authorization. Never block the island's UI thread.
+                // A legacy Keychain import may wait for macOS authorization. Never block the island's UI thread.
                 let stored = try await Task.detached(priority: .userInitiated) { try SecureStore.read() }.value
                 guard !Task.isCancelled, source == .sub2api else { return }
                 guard let key = stored, !key.isEmpty else {
@@ -215,11 +278,12 @@ final class IslandModel: ObservableObject {
             defer { authorizingCredentials = false }
             do {
                 if source == .sub2api {
-                    _ = try await Task.detached { try SecureStore.read(allowInteraction: true, useCache: false) }.value
+                    _ = try await Task.detached { try SecureStore.read(allowInteraction: true) }.value
                     refreshCodex()
                 }
             } catch { serviceMessage = error.localizedDescription }
             clineAccount.refresh(allowInteraction: true)
+            claudeAccount.refresh(allowInteraction: true)
         }
     }
 

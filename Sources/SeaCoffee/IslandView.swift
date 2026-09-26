@@ -4,7 +4,31 @@ import IslandCore
 enum Palette {
     static let mint = Color(red: 0.52, green: 0.94, blue: 0.79)
     static let blue = Color(red: 0.44, green: 0.73, blue: 0.98)
+    static let clay = Color(red: 0.85, green: 0.47, blue: 0.34)
+    static let silver = Color(white: 0.85)
     static let dim = Color.white.opacity(0.52)
+}
+
+/// Icon and colour for each quota source, shared by the island and Settings.
+enum ServiceStyle {
+    case codex, cline, claude, grok
+    init(laneID: String?) {
+        switch laneID {
+        case "CL": self = .cline
+        case "CC": self = .claude
+        case "GK": self = .grok
+        default: self = .codex
+        }
+    }
+    @MainActor var icon: Image { Image(nsImage: ServiceIcon.image(self)).renderingMode(.template) }
+    var tint: Color {
+        switch self {
+        case .codex: return Palette.mint
+        case .cline: return Palette.blue
+        case .claude: return Palette.clay
+        case .grok: return Palette.silver
+        }
+    }
 }
 
 /// The island's material. Expanded it is dark liquid glass; `blackness` fades it to solid black
@@ -120,9 +144,21 @@ struct IslandView: View {
                 if model.expanded {
                     Text("Sea Coffee").font(.system(size: 9, weight: .medium)).foregroundStyle(Palette.dim)
                 } else {
-                    VStack(alignment: .leading, spacing: 2) {
-                        compactQuota("API", quota: model.primary, stale: model.isStale)
-                        compactQuota("CL", quota: model.clinePrimary, stale: model.clineIsStale)
+                    let lanes = model.planLanes
+                    if lanes.count >= 3 {
+                        Grid(alignment: .leading, horizontalSpacing: 6, verticalSpacing: 2) {
+                            ForEach(Array(stride(from: 0, to: lanes.count + 1, by: 2)), id: \.self) { row in
+                                GridRow {
+                                    compactItem(row == 0 ? nil : lanes[row - 1])
+                                    if row < lanes.count { compactItem(lanes[row]) }
+                                }
+                            }
+                        }
+                    } else {
+                        VStack(alignment: .leading, spacing: lanes.count == 2 ? 0 : 2) {
+                            compactItem(nil)
+                            ForEach(lanes) { compactItem($0) }
+                        }
                     }
 
                 }
@@ -132,7 +168,7 @@ struct IslandView: View {
         .frame(height: model.headerHeight)
         .contentShape(Rectangle())
         .onTapGesture { model.setExpanded(!model.expanded) }
-        .accessibilityLabel("Sea Coffee，\(model.activityAppearance.label)，\(model.activeConversationCount) 个对话正在运行，Codex 剩余\(model.primary.map { "\($0.percent)%" } ?? "未知")，Cline Pass 剩余\(model.clinePrimary.map { "\($0.percent)%" } ?? "未知")")
+        .accessibilityLabel("Sea Coffee，\(model.activityAppearance.label)，\(model.activeConversationCount) 个对话正在运行，Codex 剩余\(model.primary.map { "\($0.percent)%" } ?? "未知")，\(model.planLanes.map { "\($0.title) 剩余\($0.primary.map { "\($0.percent)%" } ?? "未知")" }.joined(separator: "，"))")
         .accessibilityAddTraits(.isButton)
     }
     private var detail: some View {
@@ -163,26 +199,10 @@ struct IslandView: View {
             .frame(height: 92)
             .glassCard(radius: 18, tint: QuotaRing.tint(for: model.primary?.fraction))
 
-            HStack(spacing: 14) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Text("Cline Pass").font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.dim)
-                        if model.demo { demoBadge }
-                    }
-                    Text(model.clinePrimary.map { "\($0.percent)%" } ?? "等待连接")
-                        .font(.system(size: 21, weight: .medium, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.96)).contentTransition(.numericText())
-                    Text(clineCaption).font(.system(size: 10)).foregroundStyle(Palette.dim).lineLimit(1)
-                }
-                Spacer(minLength: 0)
-                QuotaRing(fraction: model.clinePrimary?.fraction, lineWidth: 4.5,
-                          stale: model.clineIsStale, reducedMotion: model.reduceMotion)
-                    .frame(width: 44, height: 44)
+            HStack(spacing: 8) {
+                ForEach(model.planLanes) { planCard($0, compact: model.planLanes.count >= 3) }
             }
-            .padding(.horizontal, 14)
             .frame(height: 72)
-            .glassCard(radius: 16, tint: QuotaRing.tint(for: model.clinePrimary?.fraction))
-            .help(model.clineMessage)
 
             HStack(spacing: 10) {
                 ActivityCore(state: model.activityAppearance, reducedMotion: model.reduceMotion)
@@ -206,7 +226,7 @@ struct IslandView: View {
                 Circle().fill(model.snapshot != nil || model.demo ? Palette.mint : Color.orange)
                     .frame(width: 5, height: 5)
                     .shadow(color: model.snapshot != nil || model.demo ? Palette.mint : Color.orange, radius: 3)
-                Text(model.demo ? "演示数据 · 两个账号独立刷新" : "Codex + Cline Pass · 每分钟独立刷新").font(.system(size: 9)).foregroundStyle(Palette.dim).lineLimit(1)
+                Text(model.demo ? "演示数据 · 各账号独立刷新" : "Codex · 订阅额度 · 独立刷新").font(.system(size: 9)).foregroundStyle(Palette.dim).lineLimit(1)
                     .help(model.serviceMessage)
                 Spacer(minLength: 6)
                 Button { model.openSettings?() } label: {
@@ -226,21 +246,57 @@ struct IslandView: View {
             .background(Capsule().fill(Palette.mint.opacity(0.14)))
             .overlay(GlassRim(shape: Capsule(), intensity: 0.5))
     }
-    private func compactQuota(_ label: String, quota: Quota?, stale: Bool) -> some View {
+    private func planCard(_ lane: PlanLane, compact: Bool) -> some View {
+        let primary = lane.primary
+        let ring = QuotaRing(fraction: primary?.fraction, lineWidth: compact ? 2.5 : 4, stale: lane.stale, reducedMotion: model.reduceMotion)
+        return HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 5) {
+                    let style = ServiceStyle(laneID: lane.id)
+                    style.icon.resizable().aspectRatio(contentMode: .fit)
+                        .foregroundStyle(style.tint).frame(width: 11, height: 11)
+                    // Narrow cards drop the product suffix ("Cline Pass" → "Cline"); the icon identifies it.
+                    Text(compact ? lane.title.split(separator: " ").first.map(String.init) ?? lane.title : lane.title)
+                        .font(.system(size: 10.5, weight: .medium)).foregroundStyle(Palette.dim).lineLimit(1)
+                    if model.demo && !compact { demoBadge }
+                    if compact { Spacer(minLength: 0); ring.frame(width: 15, height: 15) }
+                }
+                Text(primary.map { "\($0.percent)%" } ?? "未连接")
+                    .font(.system(size: primary == nil ? 15 : 19, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.96)).contentTransition(.numericText())
+                Text(primary.map { first in
+                    ([first.label] + (lane.snapshot?.quotas.dropFirst().prefix(1).map { "\($0.label) \($0.percent)%" } ?? [])).joined(separator: " · ")
+                } ?? lane.message)
+                    .font(.system(size: 9)).foregroundStyle(Palette.dim).lineLimit(1)
+            }
+            if !compact {
+                Spacer(minLength: 0)
+                ring.frame(width: 34, height: 34)
+            }
+        }
+        .padding(.horizontal, compact ? 10 : 11)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .glassCard(radius: 16, tint: QuotaRing.tint(for: primary?.fraction))
+        .help(lane.message)
+        .accessibilityElement(children: .combine)
+    }
+    /// `nil` is the Codex / API lane; the rest are subscription lanes.
+    private func compactItem(_ lane: PlanLane?) -> some View {
+        compactQuota(ServiceStyle(laneID: lane?.id), title: lane?.title ?? model.source.title,
+                     quota: lane.map(\.primary) ?? model.primary, stale: lane?.stale ?? model.isStale)
+    }
+    private func compactQuota(_ style: ServiceStyle, title: String, quota: Quota?, stale: Bool) -> some View {
         HStack(spacing: 4) {
-            Text(label == "API" && model.source == .official ? "CX" : label)
-                .font(.system(size: 7, weight: .medium)).foregroundStyle(Palette.dim).frame(width: 15)
+            style.icon.resizable().aspectRatio(contentMode: .fit)
+                .foregroundStyle(style.tint.opacity(0.95))
+                .frame(width: 11, height: 11)
             QuotaRing(fraction: quota?.fraction, lineWidth: 1.5, stale: stale, reducedMotion: model.reduceMotion)
                 .frame(width: 10, height: 10)
             Text(quota.map { "\($0.percent)%" } ?? "—")
                 .font(.system(size: 9, weight: .medium, design: .rounded)).monospacedDigit()
                 .foregroundStyle(.white.opacity(0.85))
         }
-        .accessibilityLabel("\(label == "CL" ? "Cline Pass" : model.source.title)，剩余\(quota.map { "\($0.percent)%" } ?? "未知")")
-    }
-    private var clineCaption: String {
-        guard let usage = model.displayedClineSnapshot else { return model.clineMessage }
-        return usage.quotas.map { "\($0.label) \($0.percent)%" }.joined(separator: " · ")
+        .accessibilityLabel("\(title)，剩余\(quota.map { "\($0.percent)%" } ?? "未知")")
     }
     private var amount: String {
         guard let usage = model.displayedSnapshot else { return "等待连接" }

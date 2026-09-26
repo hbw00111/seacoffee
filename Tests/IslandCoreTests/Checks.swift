@@ -18,7 +18,7 @@ func expectNoThrow<T>(_ expression: @autoclosure () throws -> T, file: StaticStr
 @main
 enum Checks {
     static func main() {
-        let cline = ClineTests()
+        let cline = ClineTests(); let claude = ClaudeTests(); let grok = GrokTests(); let credentials = CredentialFileTests()
         let telemetry = TelemetryTests(); let monitor = SessionMonitorTests()
         let checks: [(String, () throws -> Void)] = [
             ("quota color boundaries", {
@@ -48,6 +48,16 @@ enum Checks {
             ("Cline OAuth polling responses", cline.polling),
             ("Cline WorkOS authorization and HTTP errors", cline.authorizationAndErrors),
             ("Cline OAuth form encoding", cline.formEncoding),
+            ("Claude quota windows", claude.windows),
+            ("Claude missing and invalid quota", claude.invalidUsage),
+            ("Claude Code credential parsing", claude.credentials),
+            ("Claude HTTP status and rate limits", claude.httpStatus),
+            ("Grok credit windows", grok.windows),
+            ("Grok missing and invalid usage", grok.invalidUsage),
+            ("Grok CLI credential parsing", grok.credentials),
+            ("Grok plan and HTTP status", grok.planAndStatus),
+            ("credential file round trip and permissions", credentials.roundTripAndPermissions),
+            ("credential file rejects links and tightens modes", credentials.unsafeFiles),
             ("wallet baseline", telemetry.testWalletUsesExplicitBaselineAndRetainsActualAmount),
             ("recharge overflow", telemetry.testRechargeClampsRingButNotBalance),
             ("zero and negative balances", telemetry.testZeroBalanceIsValidAndNegativeBalanceIsNotNegativeProgress),

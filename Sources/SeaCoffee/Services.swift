@@ -4,11 +4,13 @@ import Security
 import LocalAuthentication
 import IslandCore
 
+/// App-owned secrets live in a 0600 file (see `CredentialFile`), so rebuilds with a new code
+/// signature keep them. The Keychain is only read to import items saved by older builds,
+/// and to read other apps' items such as Claude Code's login.
 enum SecureStore {
     private static let service = "com.seacoffee.SeaIsland"
     private static let lock = NSLock()
-    private static var cached: [String: String] = [:]
-    private static var absent: Set<String> = []
+    nonisolated(unsafe) static var file = CredentialFile.applicationSupport
 
     private static func authentication(_ interactive: Bool) -> LAContext {
         let context = LAContext()
@@ -26,36 +28,51 @@ enum SecureStore {
         return previous.boolValue
     }
     // Inspect existence without returning the credential or triggering a password dialog.
-    static func containsKey() throws -> Bool {
+    static func containsKey(account: String = "sub2api") throws -> Bool {
         lock.lock(); defer { lock.unlock() }
+        let contents = try file.read()
+        if contents.secrets[account] != nil { return true }
+        if contents.migrated.contains(account) { return false }
         let previous = try beginInteraction(false)
         defer { SecKeychainSetUserInteractionAllowed(previous) }
-        let context = LAContext()
-        context.interactionNotAllowed = true
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service, kSecAttrAccount as String: "sub2api",
+            kSecAttrService as String: service, kSecAttrAccount as String: account,
             kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecUseAuthenticationContext as String: context]
+            kSecUseAuthenticationContext as String: authentication(false)]
         let status = SecItemCopyMatching(query as CFDictionary, nil)
         if status == errSecItemNotFound { return false }
         guard status == errSecSuccess else { throw error(status) }
         return true
     }
 
-    static func writeAndVerify(_ key: String) throws {
-        try write(key, allowInteraction: true)
-        let stored = try read(allowInteraction: true, useCache: false)
-        guard key.isEmpty ? stored == nil : stored == key else {
-            throw NSError(domain: "SeaCoffee.Keychain", code: -1,
+    static func writeAndVerify(_ key: String, account: String = "sub2api") throws {
+        try write(key, account: account)
+        guard try read(account: account) == (key.isEmpty ? nil : key) else {
+            throw NSError(domain: "SeaCoffee.Credentials", code: -1,
                           userInfo: [NSLocalizedDescriptionKey: "写入后未能确认密钥，请重试保存。"])
         }
     }
-    static func read(account: String = "sub2api", allowInteraction: Bool = false, useCache: Bool = true) throws -> String? {
+    /// `allowInteraction` only matters while importing a legacy Keychain item.
+    static func read(account: String = "sub2api", allowInteraction: Bool = false) throws -> String? {
         lock.lock(); defer { lock.unlock() }
-        if useCache {
-            if let value = cached[account] { return value }
-            if absent.contains(account) { return nil }
+        let contents = try file.read()
+        if let value = contents.secrets[account] { return value }
+        if contents.migrated.contains(account) { return nil }
+        return try importLegacy(account: account, allowInteraction: allowInteraction)
+    }
+    static func write(_ key: String, account: String = "sub2api") throws {
+        lock.lock(); defer { lock.unlock() }
+        try file.update {
+            $0.secrets[account] = key.isEmpty ? nil : key
+            // A newer value always wins; never import an older Keychain copy afterwards.
+            $0.migrated.insert(account)
         }
+        removeLegacy(account: account)
+    }
+
+    /// Copy an older build's Keychain item into the file. An unreadable item is an error, not
+    /// absence, so nothing is marked migrated until the value is safely persisted.
+    private static func importLegacy(account: String, allowInteraction: Bool) throws -> String? {
         let previous = try beginInteraction(allowInteraction)
         defer { SecKeychainSetUserInteractionAllowed(previous) }
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
@@ -64,38 +81,51 @@ enum SecureStore {
             kSecUseAuthenticationContext as String: authentication(allowInteraction)]
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if status == errSecItemNotFound { cached[account] = nil; absent.insert(account); return nil }
+        if status == errSecItemNotFound {
+            try file.update { $0.migrated.insert(account) }
+            return nil
+        }
         guard status == errSecSuccess, let data = result as? Data,
               let value = String(data: data, encoding: .utf8) else { throw error(status) }
-        cached[account] = value; absent.remove(account)
+        try file.update { $0.secrets[account] = value; $0.migrated.insert(account) }
+        guard try file.value(account) == value else { throw CredentialFileError.unwritable(EIO) }
+        removeLegacyLocked(account: account)
         return value
     }
-    static func write(_ key: String, account: String = "sub2api", allowInteraction: Bool = false) throws {
+    private static func removeLegacy(account: String) {
+        guard let previous = try? beginInteraction(false) else { return }
+        defer { SecKeychainSetUserInteractionAllowed(previous) }
+        removeLegacyLocked(account: account)
+    }
+    // Best effort and silent: an item this build cannot delete is simply never read again.
+    private static func removeLegacyLocked(account: String) {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service, kSecAttrAccount as String: account,
+            kSecUseAuthenticationContext as String: authentication(false)]
+        SecItemDelete(query as CFDictionary)
+    }
+
+    /// Reads another app's generic password without storing it. Background reads never
+    /// prompt; macOS only shows its access dialog when `allowInteraction` is true.
+    static func readForeign(service: String, allowInteraction: Bool) throws -> Data? {
         lock.lock(); defer { lock.unlock() }
         let previous = try beginInteraction(allowInteraction)
         defer { SecKeychainSetUserInteractionAllowed(previous) }
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service, kSecAttrAccount as String: account,
+            kSecAttrService as String: service,
+            kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne,
             kSecUseAuthenticationContext as String: authentication(allowInteraction)]
-        if key.isEmpty {
-            let status = SecItemDelete(query as CFDictionary)
-            guard status == errSecSuccess || status == errSecItemNotFound else { throw error(status) }
-            cached[account] = nil; absent.insert(account)
-            return
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess, let data = result as? Data else {
+            throw NSError(domain: "SeaCoffee.Keychain", code: Int(status), userInfo: [NSLocalizedDescriptionKey:
+                "未获授权读取“\(service)”（\(status)），请在设置中点击重新读取，并在系统弹窗中选择“始终允许”。"])
         }
-        let value = [kSecValueData as String: Data(key.utf8)]
-        let updated = SecItemUpdate(query as CFDictionary, value as CFDictionary)
-        if updated == errSecItemNotFound {
-            var insert = query.merging(value) { _, new in new }
-            insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            let status = SecItemAdd(insert as CFDictionary, nil)
-            guard status == errSecSuccess else { throw error(status) }
-        } else if updated != errSecSuccess { throw error(updated) }
-        // Verify callers bypass the cache; successful writes invalidate all older values.
-        cached[account] = nil; absent.remove(account)
+        return data
     }
     private static func error(_ status: OSStatus) -> NSError {
-        NSError(domain: "SeaCoffee.Keychain", code: Int(status), userInfo: [NSLocalizedDescriptionKey: "已暂停读取凭据（\(status)），请在设置中点击“授权读取已存凭据”；后台不会弹出密码框。"])
+        NSError(domain: "SeaCoffee.Keychain", code: Int(status), userInfo: [NSLocalizedDescriptionKey: "旧版本保存在钥匙串的凭据需要授权一次（\(status)），请在设置中点击“授权读取已存凭据”；导入后不再需要。"])
     }
 }
 

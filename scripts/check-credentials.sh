@@ -12,7 +12,7 @@ pathlib.Path(sys.argv[1]).write_text(source)
 PY
 swift build --product IslandChecks >/dev/null
 swiftc -parse-as-library -I .build/debug/Modules "$CHECK_DIR/Services.swift" \
-    .build/debug/IslandCore.build/*.swift.o Tests/SeaCoffeeTests/CredentialCacheChecks.swift -o "$CHECK_DIR/check"
+    .build/debug/IslandCore.build/*.swift.o Tests/SeaCoffeeTests/CredentialStoreChecks.swift -o "$CHECK_DIR/check"
 "$CHECK_DIR/check" "$CHECK_SERVICE"
 
 swiftc Tests/SeaCoffeeTests/KeychainFixtureOwner.swift -o "$CHECK_DIR/owner"

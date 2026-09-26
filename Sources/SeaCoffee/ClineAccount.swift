@@ -2,23 +2,23 @@ import AppKit
 import Foundation
 import IslandCore
 
-// Serial background access keeps Keychain authorization off the UI thread.
+// Serial background access keeps file I/O and any legacy Keychain import off the UI thread.
 private actor ClineCredentialStore {
     private let account = "cline-oauth"
     private var pendingRotation: ClineCredentials?
     func read(allowInteraction: Bool = false) throws -> ClineCredentials? {
         if let pendingRotation {
-            try write(pendingRotation, allowInteraction: allowInteraction)
+            try write(pendingRotation)
         }
-        guard let text = try SecureStore.read(account: account, allowInteraction: allowInteraction, useCache: !allowInteraction) else { return nil }
+        guard let text = try SecureStore.read(account: account, allowInteraction: allowInteraction) else { return nil }
         return try JSONDecoder().decode(ClineCredentials.self, from: Data(text.utf8))
     }
-    func write(_ value: ClineCredentials?, allowInteraction: Bool = false, isRotation: Bool = false) throws {
+    func write(_ value: ClineCredentials?, isRotation: Bool = false) throws {
         // A rotated refresh token must survive a persistence failure within this process.
         if isRotation { pendingRotation = value }
         let text = try value.map { String(decoding: try JSONEncoder().encode($0), as: UTF8.self) } ?? ""
-        try SecureStore.write(text, account: account, allowInteraction: allowInteraction)
-        guard try SecureStore.read(account: account, allowInteraction: allowInteraction, useCache: false) == (text.isEmpty ? nil : text) else {
+        try SecureStore.write(text, account: account)
+        guard try SecureStore.read(account: account) == (text.isEmpty ? nil : text) else {
             throw ClineError.invalidResponse
         }
         pendingRotation = nil
@@ -72,7 +72,7 @@ final class ClineAccount: ObservableObject {
                                                        json: ["accessToken": access, "refreshToken": refresh])
                     let credentials = try ClineCredentials.parse(registered)
                     try Task.checkCancellation()
-                    try await store.write(credentials, allowInteraction: true)
+                    try await store.write(credentials)
                     // Once issued, persist rotated tokens even if the view changes during Keychain access.
                     try Task.checkCancellation()
                     connected = true; email = credentials.email
@@ -107,7 +107,7 @@ final class ClineAccount: ObservableObject {
 
     func logout() {
         run { [self] in
-            try await store.write(nil, allowInteraction: true)
+            try await store.write(nil)
             connected = false; email = nil
             onLogout?()
             onStatus?("已移除此应用保存的 Cline 登录")
