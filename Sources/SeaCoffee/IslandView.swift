@@ -88,7 +88,8 @@ struct IslandView: View {
                         initialWidth: completion.initialWidth, initialHeight: completion.initialHeight,
                         targetWidth: returnExpanded ? max(360, model.compactWidth) : model.compactWidth,
                         targetHeight: returnExpanded ? model.headerHeight + model.detailHeight : model.headerHeight,
-                        cameraHeight: model.hasNotch ? model.headerHeight : 0, badgeWidth: model.completionWidth, hasNotch: model.hasNotch) {
+                        cameraHeight: model.hasNotch ? model.headerHeight : 0, badgeWidth: model.completionWidth, hasNotch: model.hasNotch,
+                        caption: model.completionCaption) {
                             VStack(spacing: 0) {
                                 header
                                 if motion.returning ? returnExpanded : completion.wasExpanded { detail }

@@ -13,7 +13,8 @@ final class AgentSessionTests {
         s.consumeClaude(claude("user", at: "2026-09-26T03:00:00Z", ["role": "user", "content": "fix the bug"]))
         expectEqual(s.state, .running)
         expectEqual(s.project, "seacoffee")
-        s.consumeClaude(claude("assistant", at: "2026-09-26T03:00:05Z", ["id": "m1", "stop_reason": "tool_use", "content": [["type": "tool_use"]]]))
+        s.consumeClaude(claude("assistant", at: "2026-09-26T03:00:05Z", ["id": "m1", "model": "claude-opus-5-5", "stop_reason": "tool_use", "content": [["type": "tool_use"]]]))
+        expectEqual(s.modelName, "claude-opus-5-5")
         s.consumeClaude(claude("user", at: "2026-09-26T03:00:09Z", ["content": [["type": "tool_result", "content": "ok"]]]))
         expectEqual(s.state, .running, "tool calls and results keep the turn running")
         expectEqual(s.updatedAt, UsageDecoder.date("2026-09-26T03:00:09Z"))
@@ -24,6 +25,8 @@ final class AgentSessionTests {
         s.consumeClaude(claude("assistant", at: "2026-09-26T03:00:12Z", ["id": "m2", "stop_reason": "end_turn", "content": [["type": "thinking"]]]))
         expectEqual(s.state, .completed)
         let finished = s.transitionID
+        s.consumeClaude(claude("assistant", at: "2026-09-26T03:00:12Z", ["id": "err", "model": "<synthetic>", "stop_reason": "end_turn"]))
+        expectEqual(s.modelName, "claude-opus-5-5", "error placeholders are not a model")
         s.consumeClaude(claude("assistant", at: "2026-09-26T03:00:12Z", ["id": "m2", "stop_reason": "end_turn", "content": [["type": "text"]]]))
         expectEqual(s.transitionID, finished, "split blocks of one message complete once")
         s.consumeClaude(claude("user", at: "2026-09-26T03:01:00Z", ["content": [["type": "text", "text": "again"]]]))
@@ -37,7 +40,8 @@ final class AgentSessionTests {
 
     func grokTurns() {
         var s = SessionState(id: "g", agent: .grok)
-        s.consumeGrok(json(["type": "turn_started", "ts": "2026-09-25T12:00:00.000Z", "turn_number": 0]))
+        s.consumeGrok(json(["type": "turn_started", "ts": "2026-09-25T12:00:00.000Z", "turn_number": 0, "model_id": "grok-4.6"]))
+        expectEqual(s.modelName, "grok-4.6")
         expectEqual(s.state, .running)
         s.consumeGrok(json(["type": "tool_started", "ts": "2026-09-25T12:00:03.000Z"]))
         expectEqual(s.updatedAt, UsageDecoder.date("2026-09-25T12:00:03.000Z"))
@@ -54,7 +58,9 @@ final class AgentSessionTests {
     func clineStatuses() {
         var s = SessionState(id: "l", agent: .cline)
         let t0 = Date(timeIntervalSince1970: 1_790_000_000)
-        s.consumeCline(json(["status": "idle", "cwd": "/Users/example/app"]), modified: t0)
+        s.consumeCline(json(["status": "idle", "cwd": "/Users/example/app", "model": "deepseek/deepseek-v4.1-flash"]), modified: t0)
+        expectEqual(s.model, "deepseek/deepseek-v4.1-flash")
+        expectEqual(s.modelName, "deepseek-v4.1-flash", "routing prefix is dropped for display")
         expectEqual(s.state, .unknown, "an idle session seen at launch has no known outcome")
         expectEqual(s.project, "app")
         s.consumeCline(json(["status": "running"]), modified: t0 + 5)

@@ -70,6 +70,9 @@ final class TelemetryTests {
     func testSessionRecognizesTurnLifecycleWithoutInterpretingMessagesAsCompletion() {
         var session = SessionState(id: "s1")
         session.consume(Data(#"{"type":"session_meta","payload":{"cwd":"/Users/example/seacoffee"}}"#.utf8))
+        expectNil(session.modelName)
+        session.consume(Data(#"{"type":"turn_context","payload":{"model":"gpt-6-sol","cwd":"/Users/example/seacoffee"}}"#.utf8))
+        expectEqual(session.modelName, "gpt-6-sol")
         session.consume(event("task_started", at: "2026-09-21T12:00:00Z"))
         expectEqual(session.state, .running)
         session.consume(event("agent_message", at: "2026-09-21T12:00:01Z"))

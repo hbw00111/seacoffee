@@ -113,6 +113,27 @@ struct CompletionTileFrame: View {
     }
 }
 
+/// Names the agent (and model) whose task just finished, under the check.
+struct CompletionCaption: Equatable {
+    static let height: CGFloat = 20
+    let style: ServiceStyle
+    let text: String
+}
+
+private struct CompletionCaptionView: View {
+    let caption: CompletionCaption
+    var body: some View {
+        HStack(spacing: 4) {
+            caption.style.icon.resizable().aspectRatio(contentMode: .fit)
+                .frame(width: 10, height: 10).foregroundStyle(caption.style.tint)
+            Text(caption.text).font(.system(size: 10, weight: .medium)).foregroundStyle(.white.opacity(0.85))
+                .lineLimit(1).minimumScaleFactor(0.75)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: CompletionCaption.height, alignment: .top)
+    }
+}
+
 /// The surface stays attached to the screen edge throughout the morph.
 struct CompletionSurface<Content: View>: View {
     let motion: CompletionMotion
@@ -123,6 +144,7 @@ struct CompletionSurface<Content: View>: View {
     let cameraHeight: CGFloat
     let badgeWidth: CGFloat
     let hasNotch: Bool
+    var caption: CompletionCaption? = nil
     @ViewBuilder var content: () -> Content
 
     var body: some View {
@@ -130,7 +152,7 @@ struct CompletionSurface<Content: View>: View {
         let baseWidth = motion.returning ? targetWidth : initialWidth
         let baseHeight = motion.returning ? targetHeight : initialHeight
         let width = baseWidth + (badgeWidth - baseWidth) * amount
-        let badgeHeight = cameraHeight + 72
+        let badgeHeight = cameraHeight + 72 + (caption == nil ? 0 : CompletionCaption.height)
         let height = baseHeight + (badgeHeight - baseHeight) * amount
         // The top never leaves the camera: only the sides and lower edge move.
         let topRadius = hasNotch ? 0.0 : 18.0
@@ -150,13 +172,16 @@ struct CompletionSurface<Content: View>: View {
                 .opacity(motion.contentOpacity)
         }
         .overlay(alignment: .top) {
-            CompletionTileFrame(motion: motion)
-                .padding(.top, cameraHeight * amount)
+            VStack(spacing: 0) {
+                CompletionTileFrame(motion: motion)
+                if let caption { CompletionCaptionView(caption: caption).opacity(motion.captionOpacity) }
+            }
+            .padding(.top, cameraHeight * amount)
         }
         .clipShape(shape)
         .overlay(shape.strokeBorder(.white.opacity(0.10 * amount), lineWidth: 0.6))
         .frame(width: 520, height: 370, alignment: .top)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("本轮已完成")
+        .accessibilityLabel(caption.map { "\($0.text) 本轮已完成" } ?? "本轮已完成")
     }
 }

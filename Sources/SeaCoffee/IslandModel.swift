@@ -83,7 +83,7 @@ final class IslandModel: ObservableObject {
     var headerHeight: CGFloat { hasNotch ? max(24, notchHeight) : 32 }
     var completionWidth: CGFloat { hasNotch ? notchWidth : 180 }
     var islandWidth: CGFloat { completion != nil ? completionWidth : expanded ? max(360, compactWidth) : compactWidth }
-    var islandHeight: CGFloat { completion != nil ? (hasNotch ? headerHeight : 0) + 72 : expanded ? headerHeight + detailHeight : headerHeight }
+    var islandHeight: CGFloat { completion != nil ? (hasNotch ? headerHeight : 0) + 72 + (completionCaption == nil ? 0 : CompletionCaption.height) : expanded ? headerHeight + detailHeight : headerHeight }
     var detailHeight: CGFloat { 282 }
     var surfaceTopInset: CGFloat { 0 }
     var animation: Animation { reduceMotion ? .easeOut(duration: 0.16) : .spring(response: 0.48, dampingFraction: 0.86) }
@@ -151,6 +151,13 @@ final class IslandModel: ObservableObject {
     var clineIsStale: Bool { !demo && clineSnapshot.map { Date().timeIntervalSince($0.fetchedAt) > 180 } == true }
     var primary: Quota? { displayedSnapshot?.quotas.first }
     var isStale: Bool { !demo && snapshot.map { Date().timeIntervalSince($0.fetchedAt) > 180 } == true }
+    /// "Claude Code · claude-opus-5-5" under the completion check.
+    var completionCaption: CompletionCaption? {
+        if demo { return CompletionCaption(style: .codex, text: "Codex · gpt-6-sol") }
+        guard let notice, notice.state == .completed else { return nil }
+        let text = [notice.agent.name, notice.modelName].compactMap { $0 }.joined(separator: " · ")
+        return CompletionCaption(style: ServiceStyle(agent: notice.agent), text: text)
+    }
     /// The agent the status row talks about: the finished task, else a running one, else the latest.
     var focusAgent: Agent {
         notice?.agent ?? running.first?.agent ?? sessions.max(by: { $0.updatedAt < $1.updatedAt })?.agent ?? .codex
@@ -173,7 +180,10 @@ final class IslandModel: ObservableObject {
     }
     var statusDetail: String {
         if demo { return demoRunning ? "seacoffee · 正在打磨界面" : "seacoffee · 本轮回复已结束" }
-        if let notice { return canOpen(notice.agent) ? "\(notice.project) · 点击右侧按钮打开 \(notice.agent.name)" : notice.project }
+        if let notice {
+            let origin = [notice.project, notice.modelName].compactMap { $0 }.joined(separator: " · ")
+            return canOpen(notice.agent) ? "\(origin) · 点击右侧按钮打开 \(notice.agent.name)" : origin
+        }
         if let first = running.first { return "\(first.project) · \(activeConversationCount) 个对话运行中" }
         if uncertain { return "较长时间未收到事件 · 请查看对应工具" }
         return monitorMessage ?? "本地监听已开启 · 等待下一次任务"

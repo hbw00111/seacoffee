@@ -1,6 +1,13 @@
 import Foundation
 
 /// A local coding agent whose task state Sea Coffee follows from its own session files.
+extension SessionState {
+    /// Model name without a routing prefix: `deepseek/deepseek-v4.1-flash` → `deepseek-v4.1-flash`.
+    public var modelName: String? {
+        model.flatMap { $0.split(separator: "/").last.map(String.init) }.flatMap { $0.isEmpty ? nil : $0 }
+    }
+}
+
 public enum Agent: String, CaseIterable, Sendable {
     case codex, claude, grok, cline
     public var name: String {
@@ -45,6 +52,8 @@ extension SessionState {
                 transition(.running, "prompt:\(time.timeIntervalSince1970)", at: time)
             }
         case "assistant":
+            // Error placeholders are written as "<synthetic>", not a real model.
+            if let name = message?["model"] as? String, !name.isEmpty, !name.hasPrefix("<") { model = name }
             let id = message?["id"] as? String ?? "\(time.timeIntervalSince1970)"
             switch message?["stop_reason"] as? String {
             case "end_turn", "stop_sequence": transition(.completed, "end_turn:\(id)", at: time)
@@ -64,7 +73,9 @@ extension SessionState {
               let time = UsageDecoder.date(object["ts"]), time >= updatedAt else { return }
         let key = "\(kind):\(time.timeIntervalSince1970)"
         switch kind {
-        case "turn_started": transition(.running, key, at: time)
+        case "turn_started":
+            if let name = object["model_id"] as? String, !name.isEmpty { model = name }
+            transition(.running, key, at: time)
         case "turn_ended":
             switch object["outcome"] as? String {
             case "completed": transition(.completed, key, at: time)
@@ -81,6 +92,7 @@ extension SessionState {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let status = object["status"] as? String else { return }
         if let cwd = object["cwd"] as? String, !cwd.isEmpty { project = URL(fileURLWithPath: cwd).lastPathComponent }
+        if let name = object["model"] as? String, !name.isEmpty { model = name }
         let time = max(modified, updatedAt)
         let next: RunState
         switch status {

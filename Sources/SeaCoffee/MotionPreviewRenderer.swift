@@ -39,7 +39,8 @@ private struct MotionPreviewFrame: View {
             }.padding(.horizontal, 26).frame(height: 50)
             CompletionSurface(motion: CompletionMotion(elapsed: max(0, elapsed - 0.55)),
                 initialWidth: 291, initialHeight: 32, targetWidth: 291, targetHeight: 32,
-                cameraHeight: 32, badgeWidth: 179, hasNotch: true) {
+                cameraHeight: 32, badgeWidth: 179, hasNotch: true,
+                caption: CompletionCaption(style: .codex, text: "Codex · gpt-6-sol")) {
                     HStack(spacing: 0) {
                         HStack(spacing: 3) {
                             ActivityCore(state: .running, reducedMotion: false, timeOverride: elapsed)

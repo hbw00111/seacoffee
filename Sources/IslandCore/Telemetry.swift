@@ -136,6 +136,8 @@ public struct SessionState: Equatable, Sendable, Identifiable {
     public var id: String
     public var agent: Agent = .codex
     public var project: String = "Codex"
+    /// The model that answered most recently, as the agent names it (e.g. `claude-opus-5-5`).
+    public var model: String?
     public var state: RunState = .unknown
     public var updatedAt: Date = .distantPast
     public var transitionID: String = ""
@@ -147,6 +149,10 @@ public struct SessionState: Equatable, Sendable, Identifiable {
               let payload = object["payload"] as? [String: Any] else { return }
         if object["type"] as? String == "session_meta" {
             if let cwd = payload["cwd"] as? String { project = URL(fileURLWithPath: cwd).lastPathComponent }
+            return
+        }
+        if object["type"] as? String == "turn_context" {
+            if let name = payload["model"] as? String, !name.isEmpty { model = name }
             return
         }
         guard object["type"] as? String == "event_msg", let kind = payload["type"] as? String,

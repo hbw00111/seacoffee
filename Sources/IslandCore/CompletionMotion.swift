@@ -28,6 +28,8 @@ public struct CompletionMotion: Sendable {
     }
     public var spinningOpacity: Double { reduced ? 0 : smooth(0.48, 0.16) * (1 - smooth(1.76, 0.18)) }
     public var checkProgress: Double { reduced ? 1 : smooth(1.84, 0.26) }
+    /// "Which agent finished" appears once the check is drawn and leaves with the glyph.
+    public var captionOpacity: Double { reduced ? 1 : smooth(1.98, 0.22) * (1 - smooth(2.83, 0.16)) }
     public var settled: Bool { reduced || elapsed >= 2.10 }
     public var scale: Double {
         reduced ? 1 : 1 + sin(progress(1.90, 0.40) * .pi) * 0.045

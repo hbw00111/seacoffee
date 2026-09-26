@@ -1,16 +1,16 @@
 # Sea Coffee
 
+[English](README.en.md) | 简体中文
+
 一个住在 MacBook 刘海里的 AI 状态岛：一眼看到 Codex、Claude Code、Grok、Cline 的任务是否在跑，以及各家订阅和余额还剩多少。
 
 原生 SwiftUI + AppKit，无 Electron，无第三方运行时依赖。
-
-*A native macOS notch island that shows whether your AI coding agents are running and how much quota you have left.*
 
 ![Sea Coffee 收起、展开与完成状态](docs/preview.jpg)
 
 ## 功能
 
-- **任务状态**：本地监听 Codex、Claude Code、Grok、Cline 的会话文件，显示运行中的对话数；任务完成时在刘海处播放对勾动效，失败或中断时文字提醒。
+- **任务状态**：本地监听 Codex、Claude Code、Grok、Cline 的会话文件，显示运行中的对话数；任务完成时在刘海处播放对勾动效，并注明是哪个工具、哪个模型完成的（如 `Claude Code · claude-opus-5-5`）；失败或中断时文字提醒。
 - **额度与余额**，每家独立刷新、互不影响：
 
   | 来源 | 显示内容 | 接入方式 |
@@ -21,7 +21,7 @@
   | Claude | 5 小时 / 每周 / Sonnet、Opus 每周 | 复用本机 Claude Code 登录 |
   | Grok | SuperGrok 本期额度 | 复用 `grok login` 的登录 |
 
-- **隐私优先**：只读取事件类型、时间和项目目录名，不保存、不上传对话内容；复用其他工具的登录时只读不写。
+- **隐私优先**：只读取事件类型、时间、项目目录名和模型名，不保存、不上传对话内容；复用其他工具的登录时只读不写。
 - 额度圆环：≥50% 绿、20–49% 黄、<20% 红，未知为灰，不把未知伪装成 0 或 100%。
 - 遵循系统“减少动态效果”；无刘海屏显示为顶部胶囊。
 
