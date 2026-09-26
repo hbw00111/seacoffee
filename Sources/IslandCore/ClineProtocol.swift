@@ -61,6 +61,11 @@ public enum ClinePollResult: Equatable, Sendable {
 }
 
 public enum ClineProtocol {
+    /// API keys from app.cline.bot are sent as-is (the way CodexBar authenticates ClinePass).
+    public static func apiKeyHeader(_ key: String) -> String {
+        "Bearer " + key.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     // Cline routes WorkOS credentials by this prefix; a raw JWT is rejected with 401.
     public static func authorizationHeader(_ accessToken: String) -> String {
         let token = accessToken.lowercased().hasPrefix("workos:") ? accessToken : "workos:" + accessToken

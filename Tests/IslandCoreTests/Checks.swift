@@ -18,7 +18,7 @@ func expectNoThrow<T>(_ expression: @autoclosure () throws -> T, file: StaticStr
 @main
 enum Checks {
     static func main() {
-        let cline = ClineTests(); let claude = ClaudeTests(); let grok = GrokTests(); let credentials = CredentialFileTests()
+        let cline = ClineTests(); let claude = ClaudeTests(); let grok = GrokTests(); let credentials = CredentialFileTests(); let agents = AgentSessionTests()
         let telemetry = TelemetryTests(); let monitor = SessionMonitorTests()
         let checks: [(String, () throws -> Void)] = [
             ("quota color boundaries", {
@@ -74,7 +74,11 @@ enum Checks {
             ("malformed JSONL", telemetry.testMalformedAndUnrelatedLinesAreIgnored),
             ("incremental files and notification deduplication", monitor.testIncrementalWritesCompletionDeduplicationAndNoHistoricalNotification),
             ("resumed old conversation with concurrent completion", monitor.testResumedOldConversationSurvivesOtherConversationCompletion),
-            ("file truncation and stale tasks", monitor.testTruncatedFileAndStaleRunningState)
+            ("file truncation and stale tasks", monitor.testTruncatedFileAndStaleRunningState),
+            ("Claude Code turns, tools, subagents and interrupts", agents.claudeTurns),
+            ("Grok turn outcomes", agents.grokTurns),
+            ("Cline session statuses", agents.clineStatuses),
+            ("monitor follows Claude, Grok and Cline together", agents.monitorsAllAgents)
         ]
         for (name, check) in checks {
             let count = failures.count

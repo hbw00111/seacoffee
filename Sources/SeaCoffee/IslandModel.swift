@@ -58,6 +58,8 @@ final class IslandModel: ObservableObject {
     @Published var completion: CompletionPresentation?
     @Published var reducedMotion: Bool
     @Published var hoverEnabled: Bool
+    /// Agents whose local session files are followed; all by default.
+    @Published private(set) var watchedAgents: Set<Agent>
     var openSettings: (() -> Void)?
     var geometryChanged: (() -> Void)?
     let account = OfficialAccount()
@@ -149,30 +151,44 @@ final class IslandModel: ObservableObject {
     var clineIsStale: Bool { !demo && clineSnapshot.map { Date().timeIntervalSince($0.fetchedAt) > 180 } == true }
     var primary: Quota? { displayedSnapshot?.quotas.first }
     var isStale: Bool { !demo && snapshot.map { Date().timeIntervalSince($0.fetchedAt) > 180 } == true }
+    /// The agent the status row talks about: the finished task, else a running one, else the latest.
+    var focusAgent: Agent {
+        notice?.agent ?? running.first?.agent ?? sessions.max(by: { $0.updatedAt < $1.updatedAt })?.agent ?? .codex
+    }
+    private var runningAgentNames: String {
+        let agents = Agent.allCases.filter { agent in running.contains { $0.agent == agent } }
+        return agents.count > 2 ? "\(agents[0].name) 等 \(agents.count) 个工具" : agents.map(\.name).joined(separator: " · ")
+    }
     var statusTitle: String {
         if demo { return demoRunning ? "Codex 正在运行" : "Codex 本轮已完成" }
         if let notice {
             switch notice.state {
-            case .completed: return "Codex 本轮已完成"
-            case .failed: return "任务遇到了问题"
-            default: return "任务已中断"
+            case .completed: return "\(notice.agent.name) 本轮已完成"
+            case .failed: return "\(notice.agent.name) 遇到了问题"
+            default: return "\(notice.agent.name) 任务已中断"
             }
         }
-        if isRunning { return "Codex 正在运行" }
+        if isRunning { return "\(runningAgentNames) 正在运行" }
         return uncertain ? "任务状态待确认" : "暂无运行中的任务"
     }
     var statusDetail: String {
         if demo { return demoRunning ? "seacoffee · 正在打磨界面" : "seacoffee · 本轮回复已结束" }
-        if let notice { return "\(notice.project) · 点击右侧按钮打开 Codex" }
+        if let notice { return canOpen(notice.agent) ? "\(notice.project) · 点击右侧按钮打开 \(notice.agent.name)" : notice.project }
         if let first = running.first { return "\(first.project) · \(activeConversationCount) 个对话运行中" }
-        if uncertain { return "较长时间未收到事件 · 请查看 Codex" }
+        if uncertain { return "较长时间未收到事件 · 请查看对应工具" }
         return monitorMessage ?? "本地监听已开启 · 等待下一次任务"
+    }
+    func setWatched(_ agent: Agent, _ on: Bool) {
+        if on { watchedAgents.insert(agent) } else { watchedAgents.remove(agent) }
+        UserDefaults.standard.set(Agent.allCases.filter(watchedAgents.contains).map(\.rawValue), forKey: "watchedAgents")
+        startMonitor()
     }
 
     init(defaults: UserDefaults = .standard) {
         source = Provider(rawValue: defaults.string(forKey: "source") ?? "") ?? .sub2api
         reducedMotion = defaults.bool(forKey: "reducedMotion")
         hoverEnabled = defaults.object(forKey: "hoverEnabled") as? Bool ?? true
+        watchedAgents = defaults.stringArray(forKey: "watchedAgents").map { Set($0.compactMap(Agent.init(rawValue:))) } ?? Set(Agent.allCases)
         account.binaryPath = defaults.string(forKey: "codexBinary") ?? ""
         clineAccount.onStatus = { [weak self] text in
             self?.clineMessage = text
@@ -227,7 +243,7 @@ final class IslandModel: ObservableObject {
     func startMonitor() {
         monitor?.stop()
         let token = UUID(); generation = token
-        monitor = SessionMonitor(path: sessionPath) { [weak self] update in
+        monitor = SessionMonitor(sources: SessionSource.defaults(codexPath: sessionPath, enabled: watchedAgents)) { [weak self] update in
             Task { @MainActor in
                 guard let self, self.generation == token else { return }
                 self.sessions = update.sessions; self.monitorMessage = update.message
@@ -384,12 +400,23 @@ final class IslandModel: ObservableObject {
             presentNotice(session, isDemo: true)
         }
     }
-    func openCodex() {
-        let candidates = ["com.openai.codex", "com.openai.Codex", "com.bigpizzav3.codexplusplus", "com.codexhost.app"]
-        if let url = candidates.compactMap({ NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }).first {
+    private func appURL(for agent: Agent) -> URL? {
+        let candidates: [String]
+        switch agent {
+        case .codex: candidates = ["com.openai.codex", "com.openai.Codex", "com.bigpizzav3.codexplusplus", "com.codexhost.app"]
+        case .claude: candidates = ["com.anthropic.claudefordesktop"]
+        // Grok and Cline run in a terminal; there is no app to bring forward.
+        case .grok, .cline: candidates = []
+        }
+        return candidates.lazy.compactMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }.first
+    }
+    func canOpen(_ agent: Agent) -> Bool { appURL(for: agent) != nil }
+    func openAgent() {
+        let agent = focusAgent
+        if let url = appURL(for: agent) {
             NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
         } else {
-            serviceMessage = "未找到 Codex 桌面应用，请从 Dock 打开"
+            serviceMessage = "未找到 \(agent.name) 桌面应用，请从 Dock 或终端打开"
         }
     }
 }

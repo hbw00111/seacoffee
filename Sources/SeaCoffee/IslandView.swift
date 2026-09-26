@@ -12,6 +12,14 @@ enum Palette {
 /// Icon and colour for each quota source, shared by the island and Settings.
 enum ServiceStyle {
     case codex, cline, claude, grok
+    init(agent: Agent) {
+        switch agent {
+        case .codex: self = .codex
+        case .claude: self = .claude
+        case .grok: self = .grok
+        case .cline: self = .cline
+        }
+    }
     init(laneID: String?) {
         switch laneID {
         case "CL": self = .cline
@@ -212,11 +220,13 @@ struct IslandView: View {
                     Text(model.statusDetail).font(.system(size: 9)).foregroundStyle(Palette.dim).lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                Button { model.openCodex() } label: {
-                    Image(systemName: "arrow.up.right").font(.system(size: 10, weight: .semibold))
+                if model.demo || model.canOpen(model.focusAgent) {
+                    Button { model.openAgent() } label: {
+                        Image(systemName: "arrow.up.right").font(.system(size: 10, weight: .semibold))
+                    }
+                    .buttonStyle(GlassButtonStyle(compact: true, circle: true))
+                    .help("打开 \(model.focusAgent.name)").accessibilityLabel("打开 \(model.focusAgent.name)")
                 }
-                .buttonStyle(GlassButtonStyle(compact: true, circle: true))
-                .help("打开 Codex").accessibilityLabel("打开 Codex")
             }
             .padding(.leading, 12).padding(.trailing, 13)
             .frame(height: 50)

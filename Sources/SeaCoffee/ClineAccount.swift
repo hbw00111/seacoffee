@@ -33,6 +33,7 @@ final class ClineAccount: ObservableObject {
     @Published private(set) var verificationURL: URL?
     @Published private(set) var email: String?
     @Published private(set) var connected = false
+    @Published private(set) var hasAPIKey = false
     var onStatus: ((String) -> Void)?
     var onUsage: ((UsageSnapshot) -> Void)?
     var onLogout: (() -> Void)?
@@ -86,8 +87,31 @@ final class ClineAccount: ObservableObject {
         }
     }
 
+    nonisolated static let apiKeyAccount = "cline-apikey"
+
+    /// Saves or removes (empty) an API key. A saved key takes precedence over the OAuth login.
+    func setAPIKey(_ key: String) {
+        run { [self] in
+            let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+            try await Task.detached { try SecureStore.writeAndVerify(trimmed, account: Self.apiKeyAccount) }.value
+            hasAPIKey = !trimmed.isEmpty
+            if trimmed.isEmpty {
+                onLogout?(); onStatus?("已移除 Cline API Key")
+            } else {
+                onStatus?("正在用 API Key 查询配额…")
+                try await fetchUsage(authorization: ClineProtocol.apiKeyHeader(trimmed), label: "API Key")
+            }
+        }
+    }
+
     func refresh(allowInteraction: Bool = false) {
         run { [self] in
+            if let key = try await Task.detached(operation: { try SecureStore.read(account: Self.apiKeyAccount) }).value, !key.isEmpty {
+                hasAPIKey = true
+                try await fetchUsage(authorization: ClineProtocol.apiKeyHeader(key), label: "API Key")
+                return
+            }
+            hasAPIKey = false
             guard var credentials = try await store.read(allowInteraction: allowInteraction) else {
                 connected = false; email = nil
                 throw ClineError.notConnected
@@ -147,29 +171,33 @@ final class ClineAccount: ObservableObject {
     }
 
     private func fetchUsage(_ credentials: ClineCredentials) async throws {
-        let (data, status) = try await response(ClineProtocol.api + "/api/v1/users/me/plan/usage-limits", token: credentials.accessToken)
+        try await fetchUsage(authorization: ClineProtocol.authorizationHeader(credentials.accessToken), label: email)
+    }
+
+    private func fetchUsage(authorization: String, label: String?) async throws {
+        let (data, status) = try await response(ClineProtocol.api + "/api/v1/users/me/plan/usage-limits", authorization: authorization)
         try ClineProtocol.validateUsageStatus(status)
         let snapshot = try ClineProtocol.usage(data)
         try Task.checkCancellation()
         onUsage?(snapshot)
-        onStatus?("已连接 Cline Pass\(email.map { " · \($0)" } ?? "")")
+        onStatus?("已连接 Cline Pass\(label.map { " · \($0)" } ?? "")")
     }
 
     private func request(_ url: String, form: [String: String]? = nil,
-                         json: [String: String]? = nil, token: String? = nil) async throws -> Data {
-        let (data, status) = try await response(url, form: form, json: json, token: token)
+                         json: [String: String]? = nil) async throws -> Data {
+        let (data, status) = try await response(url, form: form, json: json)
         if status == 401 { throw ClineError.signedOut }
         guard (200..<300).contains(status) else { throw ClineError.http(status) }
         return data
     }
 
     private func response(_ url: String, form: [String: String]? = nil,
-                          json: [String: String]? = nil, token: String? = nil) async throws -> (Data, Int) {
+                          json: [String: String]? = nil, authorization: String? = nil) async throws -> (Data, Int) {
         try Task.checkCancellation()
         var request = URLRequest(url: URL(string: url)!)
         request.timeoutInterval = 25
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let token { request.setValue(ClineProtocol.authorizationHeader(token), forHTTPHeaderField: "Authorization") }
+        if let authorization { request.setValue(authorization, forHTTPHeaderField: "Authorization") }
         if let form {
             request.httpMethod = "POST"
             request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")

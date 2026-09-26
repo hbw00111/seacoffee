@@ -105,6 +105,31 @@ enum SecureStore {
         SecItemDelete(query as CFDictionary)
     }
 
+    /// Reads a generic password through Apple's `security` tool. Items that another CLI created
+    /// with that tool (Claude Code does) list it as trusted, so this never prompts and, unlike our
+    /// own cdhash-bound grant, survives rebuilds. Returns nil on any failure or after 5 seconds.
+    static func readViaSecurityTool(service: String) -> Data? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        process.arguments = ["find-generic-password", "-s", service, "-w"]
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+        let done = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in done.signal() }
+        do { try process.run() } catch { return nil }
+        // Drain while waiting so a large secret cannot fill the pipe and stall the child.
+        var data = Data()
+        let reader = DispatchQueue(label: "com.seacoffee.security-tool")
+        reader.async { data = output.fileHandleForReading.readDataToEndOfFile() }
+        guard done.wait(timeout: .now() + 5) == .success else { process.terminate(); return nil }
+        reader.sync {}
+        guard process.terminationStatus == 0 else { return nil }
+        let trimmed = data.prefix { $0 != 10 }
+        return trimmed.isEmpty ? nil : Data(trimmed)
+    }
+
     /// Reads another app's generic password without storing it. Background reads never
     /// prompt; macOS only shows its access dialog when `allowInteraction` is true.
     static func readForeign(service: String, allowInteraction: Bool) throws -> Data? {

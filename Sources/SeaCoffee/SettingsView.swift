@@ -68,7 +68,23 @@ struct SettingsView: View {
                     }
                     GlassSection(title: "任务状态", symbol: "waveform.path", tint: ActivityAppearance.running.tint) {
                         SettingRow("Codex 会话目录") { GlassTextField(placeholder: "~/.codex/sessions", text: $sessionPath, monospaced: true) }
-                        caption("在本机监听 Codex 的运行、完成和中断状态，不上传对话内容。")
+                        caption("在本机监听各工具的运行、完成和中断状态，只读取事件类型、时间和项目目录名，不保存或上传对话内容。")
+                        HStack(spacing: 14) {
+                            ForEach(Agent.allCases, id: \.self) { agent in
+                                let style = ServiceStyle(agent: agent)
+                                Toggle(isOn: Binding(get: { model.watchedAgents.contains(agent) },
+                                                     set: { model.setWatched(agent, $0) })) {
+                                    HStack(spacing: 5) {
+                                        style.icon.resizable().aspectRatio(contentMode: .fit).frame(width: 12, height: 12)
+                                            .foregroundStyle(style.tint)
+                                        Text(agent.name).font(.system(size: 12))
+                                    }
+                                }
+                                .toggleStyle(.checkbox)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        caption("Claude Code：~/.claude/projects　Grok：~/.grok/sessions　Cline：~/.cline/data/sessions")
                         GlassDivider()
                         HStack {
                             Text("当前识别到 \(model.running.count) 个运行中任务").font(.system(size: 12.5))
@@ -328,8 +344,22 @@ struct SettingsView: View {
 
 private struct ClineAccountSettings: View {
     @ObservedObject var account: ClineAccount
+    @State private var apiKey = ""
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text("API Key").font(.system(size: 12.5)).foregroundStyle(.white.opacity(0.75)).frame(width: 60, alignment: .leading)
+                GlassTextField(placeholder: account.hasAPIKey ? "已保存 · 输入新 Key 可替换" : "在 app.cline.bot 生成，粘贴到这里",
+                               text: $apiKey, secure: true, monospaced: true)
+                Button("保存") { account.setAPIKey(apiKey); apiKey = "" }
+                    .buttonStyle(GlassButtonStyle(prominent: apiKey.isEmpty ? nil : Palette.blue))
+                    .disabled(apiKey.trimmingCharacters(in: .whitespaces).isEmpty || account.busy)
+                Button("移除") { account.setAPIKey("") }.buttonStyle(GlassButtonStyle())
+                    .disabled(!account.hasAPIKey || account.busy)
+            }
+            Text("推荐：与 CodexBar 相同，用 API Key 直接查询 Cline Pass 配额，不需要浏览器登录。填写后优先使用 Key；也可以改用下方的账号登录。")
+                .font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true)
+            GlassDivider()
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("使用 Cline 账号登录 Cline Pass").font(.system(size: 12.5, weight: .medium))
@@ -406,7 +436,7 @@ private struct ClaudeAccountSettings: View {
                         .overlay(GlassRim(shape: Capsule(), intensity: 0.5))
                 }
             }
-            Text("复用本机 Claude Code 的登录，不需要 API Key。首次连接时 macOS 会询问是否允许读取“Claude Code-credentials”，选“始终允许”后后台刷新不再弹窗。只读不写，不会影响 Claude Code 的登录；令牌仅保存在内存，每 2 分钟查询一次。")
+            Text("复用本机 Claude Code 的登录，不需要 API Key。通过系统自带的 security 工具读取“Claude Code-credentials”（Claude Code 也用它写入），不弹窗，重新编译或更新后也不需要再授权；仅当该方式失败时才请求钥匙串授权。只读不写，不会影响 Claude Code 的登录；令牌仅保存在内存，每 2 分钟查询一次。")
                 .font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
                 Button(account.enabled ? "重新读取" : "连接 Claude Code") { account.connect() }

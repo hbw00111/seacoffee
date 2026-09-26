@@ -92,6 +92,12 @@ final class ClaudeAccount: ObservableObject {
         if let data = try? Data(contentsOf: file), let parsed = try? ClaudeCredentials.parse(data), !parsed.isExpired {
             return parsed
         }
+        // Claude Code writes its item with /usr/bin/security, which the item therefore trusts:
+        // reading through it needs no grant and keeps working after Sea Coffee is rebuilt.
+        if let data = SecureStore.readViaSecurityTool(service: ClaudeProtocol.keychainService),
+           let parsed = try? ClaudeCredentials.parse(data) {
+            return parsed
+        }
         guard let data = try SecureStore.readForeign(service: ClaudeProtocol.keychainService,
                                                      allowInteraction: allowInteraction) else {
             throw ClaudeError.missingCredentials

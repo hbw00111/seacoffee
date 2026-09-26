@@ -134,11 +134,12 @@ public enum RunState: String, Sendable { case running, completed, interrupted, f
 
 public struct SessionState: Equatable, Sendable, Identifiable {
     public var id: String
+    public var agent: Agent = .codex
     public var project: String = "Codex"
     public var state: RunState = .unknown
     public var updatedAt: Date = .distantPast
     public var transitionID: String = ""
-    public init(id: String) { self.id = id }
+    public init(id: String, agent: Agent = .codex) { self.id = id; self.agent = agent; project = agent.name }
 
     // Only event metadata is retained; prompts and answers are never stored by this app.
     public mutating func consume(_ line: Data) {

@@ -21,9 +21,10 @@ open "dist/Sea Coffee.app"
 - 设置中已预填 `https://coderteam.icu`。输入服务商的 API Key 和钱包满格基准，点击“保存并刷新”。仅向指定站点调用 `GET /v1/usage`，不发送模型请求；密钥保存在仅当前用户可读的本地凭据文件（见“凭据存储”），拒绝跟随重定向。
 - 钱包百分比 = 余额 / 手动设定的基准，限制在 0–100%；金额保留真实值。套餐、Key 限额使用服务端总额度。未知数据不伪装成 0 或 100%。
 - Codex 官方账号：切换 Codex 接入方式，点击“连接官方账号”。通过已安装的 `codex app-server` 在浏览器登录，读取官方额度。应用使用独立的 `~/Library/Application Support/SeaIsland/OfficialAccount`，不覆盖现有 Codex 登录或中转配置。官方凭据由 Codex CLI 管理。
-- Cline Pass：在设置独立的“Cline Pass”区域点击“连接 Cline 账号”，在浏览器核对设备码并授权。使用 Cline 官方 SDK 同款 OAuth 设备授权流程，不需要 API Key 或安装 Cline CLI。访问令牌和刷新令牌保存在同一本地凭据文件，支持取消登录和移除本应用的登录凭据。每分钟读取个人套餐的 5 小时、每周、每月剩余百分比；不会把按量钱包余额当作 Cline Pass 配额。
-- Claude：在设置“Claude”区域点击“连接 Claude Code”，复用本机 Claude Code 的 OAuth 登录（钥匙串项 `Claude Code-credentials`，或 `~/.claude/.credentials.json`），调用 `GET https://api.anthropic.com/api/oauth/usage` 显示 5 小时、每周及 Sonnet/Opus 每周剩余百分比。首次读取时 macOS 会询问授权，选“始终允许”后后台刷新不弹窗。只读不写、不刷新令牌（避免轮换 Claude Code 的刷新令牌），令牌仅保存在内存；过期时提示在终端运行一次 `claude` 续期。每 2 分钟查询一次，遇到 429 按 `Retry-After` 退避。该接口非公开，格式变化时保留旧值并提示。
+- Cline Pass：推荐在设置“Cline Pass”区域粘贴 API Key（与 CodexBar 相同，以 `Authorization: Bearer <key>` 直接调用 `GET /api/v1/users/me/plan/usage-limits`，不经过浏览器登录）；填写 Key 后优先使用 Key。也可以点击“连接 Cline 账号”，在浏览器核对设备码并授权。使用 Cline 官方 SDK 同款 OAuth 设备授权流程，不需要 API Key 或安装 Cline CLI。访问令牌和刷新令牌保存在同一本地凭据文件，支持取消登录和移除本应用的登录凭据。每分钟读取个人套餐的 5 小时、每周、每月剩余百分比；不会把按量钱包余额当作 Cline Pass 配额。
+- Claude：在设置“Claude”区域点击“连接 Claude Code”，复用本机 Claude Code 的 OAuth 登录（钥匙串项 `Claude Code-credentials`，或 `~/.claude/.credentials.json`），调用 `GET https://api.anthropic.com/api/oauth/usage` 显示 5 小时、每周及 Sonnet/Opus 每周剩余百分比。优先通过 `/usr/bin/security find-generic-password` 读取：Claude Code 用该工具写入钥匙串项，项的访问列表因此信任它（`apple-tool:` 分区），读取不弹窗，也不受 Sea Coffee 重新编译影响；该方式失败时才回退到钥匙串 API，并只在用户点击时请求授权。只读不写、不刷新令牌（避免轮换 Claude Code 的刷新令牌），令牌仅保存在内存；过期时提示在终端运行一次 `claude` 续期。每 2 分钟查询一次，遇到 429 按 `Retry-After` 退避。该接口非公开，格式变化时保留旧值并提示。
 - Grok：在设置“Grok”区域点击“连接 Grok”，读取 `grok login` 写入的 `~/.grok/auth.json`（支持 `GROK_HOME`），调用 `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits` 显示本期（通常为每周）剩余百分比与恢复时间，套餐名来自 `/v1/settings`。不涉及钥匙串，只读不写、不刷新令牌；令牌过期时提示在终端运行一次 `grok` 续期。每 2 分钟查询一次；只返回计费周期、没有用量时显示为未知。
+- 本机任务状态：同时监听 Codex、Claude Code、Grok 与 Cline，可在设置“任务状态”中逐个关闭。Claude Code 读取 `~/.claude/projects/*/*.jsonl`（用户消息为开始，`stop_reason: end_turn` 为完成，`[Request interrupted by user` 为中断，忽略子代理与 meta 记录）；Grok 读取 `~/.grok/sessions/*/*/events.jsonl` 的 `turn_started` / `turn_ended.outcome`；Cline 读取 `~/.cline/data/sessions/*/session_*.json` 的 `status`，交互会话从运行回到 `idle` 视为本轮完成。状态行显示对应工具名；Codex 与 Claude 桌面应用可一键打开，Grok 与 Cline 运行在终端中不显示打开按钮。
 - 本机 Codex：默认递归扫描 `~/.codex/sessions`，按文件修改时间监听最近两天活跃、最多 100 个会话的 JSONL 增量；旧日期目录中的续聊同样纳入监听。开始、完成、失败、中断分别处理；启动时不弹历史完成提示。超过 45 分钟无事件的运行状态视为未知，不视为成功。仅保留项目目录名、事件状态与时间，不持久化或上传对话正文。
 - 额度每 60 秒刷新，任务结束补刷。查询失败保留旧值并提示；三分钟以上的数据将减淡圆环。
 
@@ -87,7 +88,7 @@ Sub2API Key 与 Cline 登录保存在 `~/Library/Application Support/SeaIsland/c
 
 旧版本保存在钥匙串的凭据会在首次读取时导入：后台只做不弹窗的读取；读取不到授权时提示在设置中点击“授权读取已存凭据”，授权一次后写入文件并核验，再尽力删除旧钥匙串条目。读取失败不会被当作“没有凭据”，只有成功导入或确认不存在后才标记完成；标记完成后不会再用旧条目覆盖新值。
 
-Claude Code 的登录（`Claude Code-credentials`）属于其他应用，仍从钥匙串读取且不复制到文件。每次重新编译后需要在设置中重新授权一次，这一点只有稳定的 Developer ID 签名能消除。
+Claude Code 的登录（`Claude Code-credentials`）属于其他应用，不复制到文件。直接用钥匙串 API 读取时，“始终允许”写入的分区列表只记录当次构建的 cdhash，重新编译后会再次要求密码；因此改为通过 Claude Code 自己使用、且被该项信任的 `/usr/bin/security` 读取，避免反复授权。
 
 构建支持 `SEACOFFEE_SIGNING_IDENTITY` 指定固定签名证书。本机已创建 `Sea Coffee Local Development` 自签证书，有效期至 2036-09-19，私钥保存在登录钥匙串且不可导出，仅授权 `/usr/bin/codesign` 使用。构建默认读取 `~/Library/Application Support/SeaCoffee/Signing/identity.json` 中的证书指纹；配置存在但证书不可用时构建失败，不会悄悄退回临时签名。未配置的其他机器仍默认 ad-hoc。
 
