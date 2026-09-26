@@ -78,6 +78,7 @@ enum Checks {
             ("Claude Code turns, tools, subagents and interrupts", agents.claudeTurns),
             ("Grok turn outcomes", agents.grokTurns),
             ("Cline session statuses", agents.clineStatuses),
+            ("Pi turns, models and Cline Pass channel", agents.piTurns),
             ("monitor follows Claude, Grok and Cline together", agents.monitorsAllAgents)
         ]
         for (name, check) in checks {

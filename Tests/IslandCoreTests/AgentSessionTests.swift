@@ -55,6 +55,38 @@ final class AgentSessionTests {
         expectEqual(s.state, .failed)
     }
 
+    func piTurns() {
+        func pi(_ time: String, _ message: [String: Any]) -> Data {
+            json(["type": "message", "id": UUID().uuidString, "timestamp": time, "message": message])
+        }
+        var s = SessionState(id: "p", agent: .pi)
+        s.consumePi(json(["type": "session", "version": 3, "timestamp": "2026-09-22T09:08:58.266Z", "cwd": "/Users/example/notes"]))
+        expectEqual(s.project, "notes")
+        expectEqual(s.state, .unknown)
+        s.consumePi(pi("2026-09-22T09:09:00.000Z", ["role": "user", "content": [["type": "text"]]]))
+        expectEqual(s.state, .running)
+        s.consumePi(pi("2026-09-22T09:09:05.000Z", ["role": "assistant", "provider": "cline-pass-vmissla",
+                                                    "model": "cline-pass/glm-5.3-flash", "stopReason": "toolUse"]))
+        s.consumePi(pi("2026-09-22T09:09:09.000Z", ["role": "toolResult", "content": [["type": "text"]]]))
+        expectEqual(s.state, .running)
+        expectEqual(s.updatedAt, UsageDecoder.date("2026-09-22T09:09:09.000Z"))
+        s.consumePi(pi("2026-09-22T09:09:20.000Z", ["role": "assistant", "model": "cline-pass/glm-5.3-flash", "stopReason": "stop"]))
+        expectEqual(s.state, .completed)
+        expectEqual(s.modelName, "glm-5.3-flash")
+        expectEqual(s.channelName, "Cline Pass", "Pi routes Cline Pass models through a cline-pass/ prefix")
+        s.consumePi(pi("2026-09-22T09:10:00.000Z", ["role": "user"]))
+        s.consumePi(pi("2026-09-22T09:10:03.000Z", ["role": "assistant", "stopReason": "aborted"]))
+        expectEqual(s.state, .interrupted)
+        s.consumePi(pi("2026-09-22T09:11:00.000Z", ["role": "user"]))
+        s.consumePi(pi("2026-09-22T09:11:03.000Z", ["role": "assistant", "model": "gpt-6-sol", "stopReason": "error"]))
+        expectEqual(s.state, .failed)
+        expectNil(s.channelName)
+        var other = SessionState(id: "x", agent: .cline)
+        other.model = "deepseek/deepseek-v4.1-flash"
+        // Only subscriptions Sea Coffee tracks are named as a channel.
+        expectNil(other.channelName)
+    }
+
     func clineStatuses() {
         var s = SessionState(id: "l", agent: .cline)
         let t0 = Date(timeIntervalSince1970: 1_790_000_000)

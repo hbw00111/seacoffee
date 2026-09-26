@@ -6,18 +6,20 @@ enum Palette {
     static let blue = Color(red: 0.44, green: 0.73, blue: 0.98)
     static let clay = Color(red: 0.85, green: 0.47, blue: 0.34)
     static let silver = Color(white: 0.85)
+    static let lilac = Color(red: 0.78, green: 0.62, blue: 1)
     static let dim = Color.white.opacity(0.52)
 }
 
 /// Icon and colour for each quota source, shared by the island and Settings.
 enum ServiceStyle {
-    case codex, cline, claude, grok
+    case codex, cline, claude, grok, pi
     init(agent: Agent) {
         switch agent {
         case .codex: self = .codex
         case .claude: self = .claude
         case .grok: self = .grok
         case .cline: self = .cline
+        case .pi: self = .pi
         }
     }
     init(laneID: String?) {
@@ -35,6 +37,7 @@ enum ServiceStyle {
         case .cline: return Palette.blue
         case .claude: return Palette.clay
         case .grok: return Palette.silver
+        case .pi: return Palette.lilac
         }
     }
 }

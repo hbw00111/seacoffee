@@ -2,7 +2,7 @@
 
 English | [简体中文](README.md)
 
-An AI status island that lives in your MacBook's notch. See at a glance whether Codex, Claude Code, Grok, and Cline are working, and how much of each subscription or balance you have left.
+An AI status island that lives in your MacBook's notch. See at a glance whether Codex, Claude Code, Grok, Cline, and Pi are working, and how much of each subscription or balance you have left.
 
 Native SwiftUI + AppKit. No Electron, no third-party runtime dependencies.
 
@@ -12,7 +12,7 @@ Native SwiftUI + AppKit. No Electron, no third-party runtime dependencies.
 
 ## Features
 
-- **Task status**: follows the local session files of Codex, Claude Code, Grok, and Cline and shows how many conversations are running. When a task finishes, the notch plays a checkmark animation labelled with the agent and model that finished it (for example `Claude Code · claude-opus-5-5`). Failures and interruptions show a text notice.
+- **Task status**: follows the local session files of Codex, Claude Code, Grok, Cline, and Pi (including PI-Desktop) and shows how many conversations are running. When a task finishes, the notch plays a checkmark animation labelled with the agent and model that finished it (for example `Claude Code · claude-opus-5-5`). Failures and interruptions show a text notice.
 - **Quotas and balances**, each refreshed independently:
 
   | Source | What it shows | How it connects |
@@ -51,7 +51,7 @@ Open **Settings** and connect the sources you use:
 - **Cline Pass**: create an API key at [app.cline.bot](https://app.cline.bot) and paste it in, or sign in with a device code in your browser.
 - **Claude**: sign in with `claude` in a terminal first, then click "连接 Claude Code" (Connect Claude Code).
 - **Grok**: run `grok login` first, then click "连接 Grok" (Connect Grok).
-- **Task status**: all four agents are followed by default; each can be turned off.
+- **Task status**: all five agents are followed by default; each can be turned off. When Pi uses Cline Pass, the completion label names the channel and the usage shows up in the Cline ring.
 
 Hover over the top of the screen to expand; move away to collapse. "固定展开" (Keep expanded) in the menu bar keeps it open, and "预览动画" (Preview animation) shows the effects without touching real data.
 

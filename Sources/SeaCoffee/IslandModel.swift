@@ -155,7 +155,7 @@ final class IslandModel: ObservableObject {
     var completionCaption: CompletionCaption? {
         if demo { return CompletionCaption(style: .codex, text: "Codex · gpt-6-sol") }
         guard let notice, notice.state == .completed else { return nil }
-        let text = [notice.agent.name, notice.modelName].compactMap { $0 }.joined(separator: " · ")
+        let text = [notice.agent.name, notice.channelName, notice.modelName].compactMap { $0 }.joined(separator: " · ")
         return CompletionCaption(style: ServiceStyle(agent: notice.agent), text: text)
     }
     /// The agent the status row talks about: the finished task, else a running one, else the latest.
@@ -181,7 +181,7 @@ final class IslandModel: ObservableObject {
     var statusDetail: String {
         if demo { return demoRunning ? "seacoffee · 正在打磨界面" : "seacoffee · 本轮回复已结束" }
         if let notice {
-            let origin = [notice.project, notice.modelName].compactMap { $0 }.joined(separator: " · ")
+            let origin = [notice.project, notice.channelName, notice.modelName].compactMap { $0 }.joined(separator: " · ")
             return canOpen(notice.agent) ? "\(origin) · 点击右侧按钮打开 \(notice.agent.name)" : origin
         }
         if let first = running.first { return "\(first.project) · \(activeConversationCount) 个对话运行中" }
@@ -415,6 +415,7 @@ final class IslandModel: ObservableObject {
         switch agent {
         case .codex: candidates = ["com.openai.codex", "com.openai.Codex", "com.bigpizzav3.codexplusplus", "com.codexhost.app"]
         case .claude: candidates = ["com.anthropic.claudefordesktop"]
+        case .pi: candidates = ["net.aiuo.pi-desktop"]
         // Grok and Cline run in a terminal; there is no app to bring forward.
         case .grok, .cline: candidates = []
         }

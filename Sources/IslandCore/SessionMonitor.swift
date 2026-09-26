@@ -17,7 +17,8 @@ public struct SessionSource: Sendable {
 
     public static func defaults(codexPath: String, enabled: Set<Agent> = Set(Agent.allCases)) -> [SessionSource] {
         let paths: [(Agent, String)] = [(.codex, codexPath), (.claude, "~/.claude/projects"),
-                                        (.grok, "~/.grok/sessions"), (.cline, "~/.cline/data/sessions")]
+                                        (.grok, "~/.grok/sessions"), (.cline, "~/.cline/data/sessions"),
+                                        (.pi, "~/.pi/agent/sessions")]
         return paths.filter { enabled.contains($0.0) }.map { SessionSource(agent: $0.0, path: $0.1) }
     }
 
@@ -31,6 +32,7 @@ public struct SessionSource: Sendable {
         // Top-level transcripts only; subagent transcripts live one level deeper.
         case .claude: return url.pathExtension == "jsonl" && url.deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL == root.standardizedFileURL
         case .grok: return name == "events.jsonl"
+        case .pi: return url.pathExtension == "jsonl" && url.deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL == root.standardizedFileURL
         case .cline: return name.hasPrefix("session_") && name.hasSuffix(".json") && !name.hasSuffix(".messages.json")
         }
     }
@@ -51,6 +53,7 @@ public struct SessionSource: Sendable {
         case .codex: state.consume(line)
         case .claude: state.consumeClaude(line)
         case .grok: state.consumeGrok(line)
+        case .pi: state.consumePi(line)
         case .cline: break
         }
     }

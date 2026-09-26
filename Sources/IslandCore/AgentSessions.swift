@@ -6,16 +6,26 @@ extension SessionState {
     public var modelName: String? {
         model.flatMap { $0.split(separator: "/").last.map(String.init) }.flatMap { $0.isEmpty ? nil : $0 }
     }
+    /// A subscription the model was routed through, when its prefix names one Sea Coffee tracks
+    /// (Pi records Cline Pass models as `cline-pass/glm-5.3-flash`).
+    public var channelName: String? {
+        guard let model, let slash = model.firstIndex(of: "/") else { return nil }
+        switch model[..<slash].lowercased() {
+        case "cline-pass", "clinepass": return "Cline Pass"
+        default: return nil
+        }
+    }
 }
 
 public enum Agent: String, CaseIterable, Sendable {
-    case codex, claude, grok, cline
+    case codex, claude, grok, cline, pi
     public var name: String {
         switch self {
         case .codex: return "Codex"
         case .claude: return "Claude Code"
         case .grok: return "Grok"
         case .cline: return "Cline"
+        case .pi: return "Pi"
         }
     }
 }
@@ -84,6 +94,32 @@ extension SessionState {
             default: transition(.unknown, key, at: time)
             }
         default: activity(at: time)
+        }
+    }
+
+    /// Pi (CLI and PI-Desktop): `~/.pi/agent/sessions/--<escaped cwd>--/<time>_<id>.jsonl`.
+    public mutating func consumePi(_ line: Data) {
+        guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+              let time = UsageDecoder.date(object["timestamp"]), time >= updatedAt else { return }
+        switch object["type"] as? String {
+        case "session":
+            if let cwd = object["cwd"] as? String, !cwd.isEmpty { project = URL(fileURLWithPath: cwd).lastPathComponent }
+        case "message":
+            guard let message = object["message"] as? [String: Any] else { return }
+            let key = "\(object["id"] as? String ?? ""):\(time.timeIntervalSince1970)"
+            switch message["role"] as? String {
+            case "user": transition(.running, "user:" + key, at: time)
+            case "assistant":
+                if let name = message["model"] as? String, !name.isEmpty { model = name }
+                switch message["stopReason"] as? String {
+                case "stop", "length": transition(.completed, "stop:" + key, at: time)
+                case "aborted": transition(.interrupted, "aborted:" + key, at: time)
+                case "error": transition(.failed, "error:" + key, at: time)
+                default: if state == .running { updatedAt = time } else { transition(.running, "tool:" + key, at: time) }
+                }
+            default: activity(at: time) // tool results
+            }
+        default: break
         }
     }
 

@@ -2,7 +2,7 @@
 
 [English](README.en.md) | 简体中文
 
-一个住在 MacBook 刘海里的 AI 状态岛：一眼看到 Codex、Claude Code、Grok、Cline 的任务是否在跑，以及各家订阅和余额还剩多少。
+一个住在 MacBook 刘海里的 AI 状态岛：一眼看到 Codex、Claude Code、Grok、Cline、Pi 的任务是否在跑，以及各家订阅和余额还剩多少。
 
 原生 SwiftUI + AppKit，无 Electron，无第三方运行时依赖。
 
@@ -10,7 +10,7 @@
 
 ## 功能
 
-- **任务状态**：本地监听 Codex、Claude Code、Grok、Cline 的会话文件，显示运行中的对话数；任务完成时在刘海处播放对勾动效，并注明是哪个工具、哪个模型完成的（如 `Claude Code · claude-opus-5-5`）；失败或中断时文字提醒。
+- **任务状态**：本地监听 Codex、Claude Code、Grok、Cline、Pi（含 PI-Desktop）的会话文件，显示运行中的对话数；任务完成时在刘海处播放对勾动效，并注明是哪个工具、哪个模型完成的（如 `Claude Code · claude-opus-5-5`）；失败或中断时文字提醒。
 - **额度与余额**，每家独立刷新、互不影响：
 
   | 来源 | 显示内容 | 接入方式 |
@@ -49,7 +49,7 @@ open "dist/Sea Coffee.app"
 - **Cline Pass**：推荐在 [app.cline.bot](https://app.cline.bot) 生成 API Key 粘贴保存；也可以用设备码在浏览器登录。
 - **Claude**：先在终端运行 `claude` 并登录，然后点击“连接 Claude Code”。
 - **Grok**：先运行 `grok login`，然后点击“连接 Grok”。
-- **任务状态**：默认监听全部四个工具，可逐个关闭。
+- **任务状态**：默认监听全部五个工具，可逐个关闭。通过 Pi 使用 Cline Pass 时，完成提示会注明渠道，额度也计入 Cline 圆环。
 
 悬停顶部即展开，移开即收起；菜单栏“固定展开”可保持展开，“预览动画”可查看效果而不影响真实数据。
 
