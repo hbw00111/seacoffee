@@ -64,7 +64,7 @@ Hover over the top of the screen to expand; move away to collapse. "固定展开
 - No request follows redirects, and credentials are never written to logs or UserDefaults.
 - The Claude, Grok, and Cline quota endpoints are the ones their websites or CLIs use, not stable public APIs. If a format changes, Sea Coffee keeps the last value and shows a notice rather than a wrong number.
 
-Data sources, protocols, and implementation details are documented (in Chinese) in [docs/how-it-works.md](docs/how-it-works.md).
+Data sources, protocols, and implementation details are documented (in Chinese) in [docs/how-it-works.md](docs/how-it-works.md); current status, roadmap, and known issues are in [docs/progress.md](docs/progress.md).
 
 ## Development
 

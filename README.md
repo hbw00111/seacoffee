@@ -62,7 +62,7 @@ open "dist/Sea Coffee.app"
 - 所有请求拒绝跟随重定向，凭据不写入日志或 UserDefaults。
 - Claude、Grok、Cline 的额度接口是各家官网或 CLI 使用的接口，并非公开稳定 API，格式变化时会保留旧值并提示，而不是显示错误数字。
 
-详细的数据来源、协议和实现说明见 [docs/how-it-works.md](docs/how-it-works.md)。
+详细的数据来源、协议和实现说明见 [docs/how-it-works.md](docs/how-it-works.md)，当前进度、待办与已知问题见 [docs/progress.md](docs/progress.md)。
 
 ## 开发
 
