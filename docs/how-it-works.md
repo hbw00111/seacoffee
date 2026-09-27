@@ -81,6 +81,11 @@
 - 动效顺序参考了 Apple Pay 与 Face ID 的公开演示（先立体翻转、后描勾），刘海两侧合拢为本项目设计，并非逐帧复制。
 - 导出同一套参数的动效预览：`dist/Sea\ Coffee.app/Contents/MacOS/SeaCoffee --render-motion dist/motion-preview.gif`。
 
+## 应用图标
+
+- 设计源文件为 `docs/icon.svg`（液态一滴 · 奶白），与左侧液态融球同一视觉语言。
+- `scripts/make-icon.swift` 用 CoreGraphics + CoreImage 按同一几何重画：AppKit 的 SVG 渲染不支持 SVG 里的融合滤镜，因此同样以“模糊 + alpha 阈值（×32 − 14）”生成融合轮廓，每颗液滴各自的径向渐变模糊后被轮廓裁出。修改图标时请同时更新两者。
+
 ## 已知边界
 
 - 任务监听依赖各工具的本地文件格式，不是官方事件订阅；只有明确的结束事件才提示完成，不推断进度，也不判断“等待审批”。

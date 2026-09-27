@@ -1,3 +1,5 @@
+<img src="docs/icon.png" width="96" alt="Sea Coffee 图标">
+
 # Sea Coffee
 
 [English](README.en.md) | 简体中文
