@@ -81,6 +81,15 @@ final class IslandModel: ObservableObject {
 
     var site: String { UserDefaults.standard.string(forKey: "site") ?? "" }
     var baseline: Double { let n = UserDefaults.standard.double(forKey: "baseline"); return n > 0 ? n : 100 }
+    /// Bumped when a top-up moves the baseline, so an open Settings window shows the new amount.
+    @Published private(set) var baselineRevision = 0
+    /// Up to two decimals, without trailing zeros, in a form `Double(_:)` parses back.
+    static func baselineText(_ value: Double) -> String {
+        var text = String(format: "%.2f", value)
+        while text.hasSuffix("0") { text.removeLast() }
+        if text.hasSuffix(".") { text.removeLast() }
+        return text
+    }
     var sessionPath: String { UserDefaults.standard.string(forKey: "sessionPath") ?? "~/.codex/sessions" }
     // Four quotas fold into a 2×2 grid, which needs a wider right wing.
     var compactWidth: CGFloat { max(290, notchWidth + (planLanes.count >= 3 ? 250 : 180)) }
@@ -296,10 +305,23 @@ final class IslandModel: ObservableObject {
                     refreshing = false
                     return
                 }
-                let usage = try await BalanceClient.fetch(site: site, key: key, baseline: baseline)
+                var usage = try await BalanceClient.fetch(site: site, key: key, baseline: baseline)
                 guard !Task.isCancelled, source == .sub2api else { return }
-                withAnimation(animation) { snapshot = usage }
                 serviceMessage = "已连接 · \(URL(string: site)?.host ?? "Sub2API")"
+                if usage.hasWallet, let balance = usage.balance {
+                    let defaults = UserDefaults.standard
+                    // Only a balance seen on the same site counts as "last time".
+                    let previous = defaults.string(forKey: "walletLastSite") == site ? defaults.object(forKey: "walletLastBalance") as? Double : nil
+                    if let rebased = WalletTopUp.rebasedBaseline(previousBalance: previous, currentBalance: balance, baseline: baseline) {
+                        defaults.set(rebased, forKey: "baseline")
+                        usage = usage.rebasingWallet(to: rebased)
+                        baselineRevision += 1
+                        serviceMessage = "检测到充值，满格基准已更新为 $\(Self.baselineText(rebased))"
+                    }
+                    defaults.set(balance, forKey: "walletLastBalance")
+                    defaults.set(site, forKey: "walletLastSite")
+                }
+                withAnimation(animation) { snapshot = usage }
             } catch {
                 guard !Task.isCancelled else { return }
                 serviceMessage = "\(error.localizedDescription)\(snapshot == nil ? "" : " · 保留上次数据")"

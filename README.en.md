@@ -48,7 +48,7 @@ The app is built to `dist/Sea Coffee.app`; drag it to Applications if you like. 
 
 Open **Settings** and connect the sources you use:
 
-- **Codex API**: enter your Sub2API site URL, API key, and the balance that counts as a full ring, then click "保存并刷新" (Save and refresh). Only `GET /v1/usage` is called; no model requests are sent.
+- **Codex API**: enter your Sub2API site URL, API key, and the balance that counts as a full ring, then click "保存并刷新" (Save and refresh). Only `GET /v1/usage` is called; no model requests are sent. After each top-up, the baseline moves to the new balance automatically.
 - **Codex official**: switch the connection mode and click "连接官方账号" (Connect official account). A separate Codex home directory is used, so your existing Codex login is untouched.
 - **Cline Pass**: create an API key at [app.cline.bot](https://app.cline.bot) and paste it in, or sign in with a device code in your browser.
 - **Claude**: sign in with `claude` in a terminal first, then click "连接 Claude Code" (Connect Claude Code).

@@ -21,7 +21,7 @@ struct SettingsView: View {
     init(model: IslandModel) {
         self.model = model
         _site = State(initialValue: model.site)
-        _baseline = State(initialValue: String(format: "%.0f", model.baseline))
+        _baseline = State(initialValue: IslandModel.baselineText(model.baseline))
         _sessionPath = State(initialValue: model.sessionPath)
         _binary = State(initialValue: UserDefaults.standard.string(forKey: "codexBinary") ?? "")
         _reducedMotion = State(initialValue: model.reducedMotion)
@@ -185,6 +185,8 @@ struct SettingsView: View {
                 SettingRow("满格基准") {
                     HStack(spacing: 8) {
                         GlassTextField(placeholder: "100", text: $baseline).frame(width: 120)
+                            // A detected top-up rewrites the baseline; show it so saving does not revert it.
+                            .onChange(of: model.baselineRevision) { _, _ in baseline = IslandModel.baselineText(model.baseline) }
                         Text("USD").font(.system(size: 11, weight: .medium)).foregroundStyle(.white.opacity(0.5))
                         Spacer(minLength: 0)
                     }

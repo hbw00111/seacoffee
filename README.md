@@ -46,7 +46,7 @@ open "dist/Sea Coffee.app"
 
 打开 **设置**，按需连接各个来源：
 
-- **Codex API**：填写 Sub2API 站点地址、API Key 和钱包满格基准，点击“保存并刷新”。仅调用 `GET /v1/usage`，不发送模型请求。
+- **Codex API**：填写 Sub2API 站点地址、API Key 和钱包满格基准，点击“保存并刷新”。仅调用 `GET /v1/usage`，不发送模型请求。之后每次充值，基准会自动更新为充值后的余额。
 - **Codex 官方**：切换接入方式后点击“连接官方账号”。使用独立的 Codex 主目录，不影响你现有的 Codex 登录。
 - **Cline Pass**：推荐在 [app.cline.bot](https://app.cline.bot) 生成 API Key 粘贴保存；也可以用设备码在浏览器登录。
 - **Claude**：先在终端运行 `claude` 并登录，然后点击“连接 Claude Code”。

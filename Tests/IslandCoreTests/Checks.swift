@@ -18,7 +18,7 @@ func expectNoThrow<T>(_ expression: @autoclosure () throws -> T, file: StaticStr
 @main
 enum Checks {
     static func main() {
-        let cline = ClineTests(); let claude = ClaudeTests(); let grok = GrokTests(); let credentials = CredentialFileTests(); let agents = AgentSessionTests(); let piDesktop = PiDesktopTests()
+        let cline = ClineTests(); let claude = ClaudeTests(); let grok = GrokTests(); let credentials = CredentialFileTests(); let agents = AgentSessionTests(); let piDesktop = PiDesktopTests(); let topUp = WalletTopUpTests()
         let telemetry = TelemetryTests(); let monitor = SessionMonitorTests()
         let checks: [(String, () throws -> Void)] = [
             ("quota color boundaries", {
@@ -59,6 +59,8 @@ enum Checks {
             ("credential file round trip and permissions", credentials.roundTripAndPermissions),
             ("credential file rejects links and tightens modes", credentials.unsafeFiles),
             ("wallet baseline", telemetry.testWalletUsesExplicitBaselineAndRetainsActualAmount),
+            ("wallet top-up resets the baseline", topUp.rebasing),
+            ("wallet snapshot rebasing", topUp.snapshotRebase),
             ("recharge overflow", telemetry.testRechargeClampsRingButNotBalance),
             ("zero and negative balances", telemetry.testZeroBalanceIsValidAndNegativeBalanceIsNotNegativeProgress),
             ("key quota windows", telemetry.testKeyLimitsAreNotConfusedWithWallet),
