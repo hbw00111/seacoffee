@@ -35,6 +35,7 @@
 - 请求 `GET https://api.anthropic.com/api/oauth/usage`，请求头 `anthropic-beta: oauth-2025-04-20`。映射 `five_hour`、`seven_day`、`seven_day_sonnet`、`seven_day_opus`；没有 `utilization` 的窗口视为未知。
 - 需要 `user:profile` 权限；`claude setup-token` 生成的令牌不可用。
 - 只读不写、从不刷新令牌（刷新会轮换 Claude Code 的刷新令牌，导致其登录失效），令牌仅保存在内存。过期时提示在终端运行一次 `claude` 续期。
+- 不做后台自动续期：`claude auth status`、`claude doctor`、非交互 `/status` 都不访问服务器，不会续期；只有真实请求才会触发 CLI 续期。2026-09-28 实测一次后台 `claude -p`：刷新令牌已失效时，CLI 续期失败后会**清空自己保存的登录**，因此后台触发有让用户在不知情时被登出的风险，暂不采用。
 - 每 2 分钟查询一次，遇到 429 按 `Retry-After` 退避。
 
 ### Grok
@@ -42,7 +43,7 @@
 - 读取 `grok login` 写入的 `~/.grok/auth.json`（支持 `GROK_HOME`），优先 `https://auth.x.ai::` 条目。不涉及钥匙串。
 - 请求 `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`，请求头 `x-xai-token-auth: xai-grok-cli`。读取 `config.creditUsagePercent`，缺失时用 `onDemandUsed / onDemandCap`；重置时间取 `currentPeriod.end`，否则 `billingPeriodEnd`（起止时间不混用两个周期）。只返回周期、没有用量时显示为未知。
 - 套餐名来自 `GET /v1/settings` 的 `subscription_tier_display`，失败时不影响额度显示。
-- 只读不写、不刷新令牌；Grok 令牌有效期较短，过期时提示运行一次 `grok` 续期。每 2 分钟查询一次。
+- 只读不写，Sea Coffee 自己从不刷新令牌。Grok 令牌约 6 小时过期；过期时在后台运行一次 `grok models`（列出模型后退出，不发起对话、不消耗额度、不产生会话记录），由 Grok CLI 自己续期并写回 `auth.json`，随后重新读取。每 10 分钟最多尝试一次，40 秒超时；仍失败时提示运行 `grok` 或 `grok login`。每 2 分钟查询一次。
 
 ## 任务状态
 

@@ -6,7 +6,7 @@ public enum GrokError: LocalizedError, Equatable {
         switch self {
         case .notConnected: return "请在设置中连接 Grok。"
         case .missingCredentials: return "未找到 Grok 登录，请先在终端运行 grok login。"
-        case .expired: return "Grok 登录已过期，在终端运行一次 grok 即可自动续期。"
+        case .expired: return "Grok 登录已过期，自动续期未成功；请在终端运行一次 grok（仍不行时运行 grok login）。"
         case .signedOut: return "Grok 拒绝了当前凭据，请运行 grok login 重新登录。"
         case .usageUnavailable: return "Grok 返回了计费周期，但没有用量百分比。"
         case .invalidResponse: return "Grok 返回了无法识别的数据。"

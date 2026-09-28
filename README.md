@@ -50,7 +50,7 @@ open "dist/Sea Coffee.app"
 - **Codex 官方**：切换接入方式后点击“连接官方账号”。使用独立的 Codex 主目录，不影响你现有的 Codex 登录。
 - **Cline Pass**：推荐在 [app.cline.bot](https://app.cline.bot) 生成 API Key 粘贴保存；也可以用设备码在浏览器登录。
 - **Claude**：先在终端运行 `claude` 并登录，然后点击“连接 Claude Code”。
-- **Grok**：先运行 `grok login`，然后点击“连接 Grok”。
+- **Grok**：先运行 `grok login`，然后点击“连接 Grok”。之后令牌过期会自动让 Grok CLI 续期，不用再手动运行。
 - **任务状态**：默认监听全部五个工具，可逐个关闭。通过 Pi 使用 Cline Pass 时，完成提示会注明渠道，额度也计入 Cline 圆环。
 
 需要开机自动运行时，在设置“外观与交互”中打开“开机自启”（立即生效）。

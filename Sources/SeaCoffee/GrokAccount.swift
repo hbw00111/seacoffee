@@ -17,6 +17,8 @@ final class GrokAccount: ObservableObject {
     private var lastAttempt = Date.distantPast
     private var task: Task<Void, Never>?
     private let minimumInterval: TimeInterval = 120
+    /// At most one background CLI refresh per ten minutes, so a broken login is not retried every poll.
+    private var lastCLIRefresh = Date.distantPast
     private lazy var session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.urlCache = nil
@@ -50,8 +52,17 @@ final class GrokAccount: ObservableObject {
         task = Task {
             defer { busy = false; task = nil }
             do {
-                let credentials = try await Task.detached(priority: .userInitiated) { try Self.readCLI() }.value
+                var credentials = try await Task.detached(priority: .userInitiated) { try Self.readCLI() }.value
                 try Task.checkCancellation()
+                if credentials.isExpired, Date().timeIntervalSince(lastCLIRefresh) > 600 {
+                    // The CLI refreshes and rewrites its own login; Sea Coffee still never writes it.
+                    lastCLIRefresh = Date()
+                    onStatus?("Grok 登录已过期，正在让 Grok CLI 自动续期…")
+                    if await Task.detached(priority: .utility, operation: { Self.refreshThroughCLI() }).value {
+                        credentials = try await Task.detached(priority: .userInitiated) { try Self.readCLI() }.value
+                    }
+                    try Task.checkCancellation()
+                }
                 guard !credentials.isExpired else { throw GrokError.expired }
                 email = credentials.email
                 let snapshot = try GrokProtocol.usage(try await get(GrokProtocol.billingURL, credentials))
@@ -72,6 +83,27 @@ final class GrokAccount: ObservableObject {
     }
 
     func stop() { task?.cancel() }
+
+    /// `grok models` lists models and exits: it needs a valid login, so the CLI refreshes an expired
+    /// token itself, without starting a conversation, spending credits or writing a session.
+    nonisolated private static func refreshThroughCLI() -> Bool {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        // Apps launched from Finder do not inherit the shell's PATH.
+        let candidates = ["\(home)/.local/bin/grok", "/opt/homebrew/bin/grok", "/usr/local/bin/grok"]
+        guard let binary = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else { return false }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: binary)
+        process.arguments = ["models"]
+        process.currentDirectoryURL = FileManager.default.temporaryDirectory
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        let done = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in done.signal() }
+        do { try process.run() } catch { return false }
+        guard done.wait(timeout: .now() + 40) == .success else { process.terminate(); return false }
+        return process.terminationStatus == 0
+    }
 
     nonisolated private static func readCLI() throws -> GrokCredentials {
         let home = ProcessInfo.processInfo.environment["GROK_HOME"].map { URL(fileURLWithPath: $0) }

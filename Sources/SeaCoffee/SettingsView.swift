@@ -486,7 +486,7 @@ private struct GrokAccountSettings: View {
                         .overlay(GlassRim(shape: Capsule(), intensity: 0.5))
                 }
             }
-            Text("复用 grok login 写入的 ~/.grok/auth.json，不需要 API Key，也不会弹出钥匙串授权。只读不写；Grok 令牌有效期较短，过期时在终端运行一次 grok 即可续期。每 2 分钟查询一次。")
+            Text("复用 grok login 写入的 ~/.grok/auth.json，不需要 API Key，也不会弹出钥匙串授权。只读不写；Grok 令牌约 6 小时过期，过期时会在后台运行一次 grok models，让 Grok CLI 自己续期（不发起对话、不消耗额度）。每 2 分钟查询一次。")
                 .font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
                 Button(account.enabled ? "立即刷新" : "连接 Grok") { pending = true; account.connect() }
