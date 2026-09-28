@@ -97,7 +97,7 @@
 ## 开发备忘
 
 - 构建与运行：`bash scripts/build-app.sh && open "dist/Sea Coffee.app"`
-- 检查：`swift run IslandChecks`（43 项）、`bash scripts/check-account-isolation.sh`、`bash scripts/check-credentials.sh`
+- 检查：`swift run IslandChecks`（45 项）、`bash scripts/check-account-isolation.sh`、`bash scripts/check-credentials.sh`
 - 目录：`Sources/IslandCore` 放与界面无关、可测试的逻辑（各家协议解析、会话状态机、凭据文件、PI-Desktop 数据库读取）；`Sources/SeaCoffee` 放界面与账号接入。
 - 几个关键决定：
   - **零第三方依赖**：动效、加载、SVG 图标、SQLite 读取均用系统框架实现。
