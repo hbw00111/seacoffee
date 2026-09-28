@@ -96,6 +96,9 @@ struct SettingsView: View {
                         GlassDivider()
                         SettingRow("减少动态效果") { HStack { Spacer(); Toggle("减少动态效果", isOn: $reducedMotion).labelsHidden() } }
                         GlassDivider()
+                        // Takes effect at once through the system's login items; not part of Save.
+                        SettingRow("开机自启") { LaunchAtLoginToggle(launch: model.launchAtLogin) }
+                        GlassDivider()
                         caption("额度圆环：50% 及以上为绿，20%–49% 为黄，低于 20% 为红。左侧橙色运行、红色报错、绿色完成，数字为运行中的对话数。")
                         caption("完成时两侧合拢为与刘海等宽的黑色背景，对勾立体翻转后收回。减少动态效果时改为静态对勾；额度每分钟刷新。")
                     }

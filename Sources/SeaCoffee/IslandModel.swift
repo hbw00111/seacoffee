@@ -69,6 +69,7 @@ final class IslandModel: ObservableObject {
     let clineAccount = ClineAccount()
     let claudeAccount = ClaudeAccount()
     let grokAccount = GrokAccount()
+    let launchAtLogin = LaunchAtLogin()
     private var monitor: SessionMonitor?
     private var refreshTimer: Timer?
     private var collapseTask: Task<Void, Never>?

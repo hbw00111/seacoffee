@@ -55,6 +55,8 @@ Open **Settings** and connect the sources you use:
 - **Grok**: run `grok login` first, then click "连接 Grok" (Connect Grok).
 - **Task status**: all five agents are followed by default; each can be turned off. When Pi uses Cline Pass, the completion label names the channel and the usage shows up in the Cline ring.
 
+To start Sea Coffee when you log in, turn on "开机自启" (Launch at login) under "外观与交互" (Appearance and interaction) in Settings; it takes effect immediately.
+
 Hover over the top of the screen to expand; move away to collapse. "固定展开" (Keep expanded) in the menu bar keeps it open, and "预览动画" (Preview animation) shows the effects without touching real data.
 
 ## Security and privacy
