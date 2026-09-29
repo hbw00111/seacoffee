@@ -60,7 +60,7 @@ struct GlassSurface<S: InsettableShape>: View {
     var body: some View {
         ZStack {
             if snapshot {
-                Color(white: 0.15).opacity(0.78)
+                Palette.surface
             } else if blending == .behindWindow {
                 BackdropBlur()
             } else {
@@ -105,7 +105,7 @@ struct OuterShadow<S: Shape>: View {
     }
 }
 
-/// A pane nested inside a glass surface. It does not blur again; it lifts and catches light.
+/// A quiet, solid pane nested inside the outer glass surface.
 struct GlassCard: ViewModifier {
     var radius: CGFloat = 16
     var tint: Color? = nil
@@ -114,13 +114,13 @@ struct GlassCard: ViewModifier {
         content
             .background {
                 ZStack {
-                    shape.fill(LinearGradient(colors: [.white.opacity(0.085), .white.opacity(0.03)], startPoint: .top, endPoint: .bottom))
+                    shape.fill(Palette.surface.opacity(0.88))
                     if let tint {
-                        shape.fill(RadialGradient(colors: [tint.opacity(0.16), .clear], center: .topTrailing, startRadius: 0, endRadius: 200))
+                        shape.fill(tint.opacity(0.025))
                     }
                 }
             }
-            .overlay(GlassRim(shape: shape, intensity: 0.6))
+            .overlay(shape.strokeBorder(Palette.border, lineWidth: 0.75))
     }
 }
 
@@ -130,7 +130,7 @@ extension View {
     }
 }
 
-/// Capsule glass button. `prominent` fills it with a tint, like the system's prominent glass style.
+/// Compact rounded button; `prominent` supplies a solid accent fill.
 struct GlassButtonStyle: ButtonStyle {
     var prominent: Color? = nil
     var compact = false
@@ -159,8 +159,8 @@ private struct GlassButtonBody: View {
     @State private var shakes: CGFloat = 0
     @State private var bounce = 0
     var body: some View {
-        let height: CGFloat = compact ? 24 : 30
-        let shape = RoundedRectangle(cornerRadius: height / 2, style: .continuous)
+        let height: CGFloat = compact ? 24 : 32
+        let shape = RoundedRectangle(cornerRadius: circle ? height / 2 : compact ? 8 : 10, style: .continuous)
         let ink = prominent == nil ? Color.white.opacity(0.9) : Color.black.opacity(0.82)
         let covered = loading || showingSuccess
         configuration.label
@@ -176,7 +176,7 @@ private struct GlassButtonBody: View {
                 } else if showingSuccess {
                     Image(systemName: "checkmark").font(.system(size: compact ? 11 : 12.5, weight: .bold))
                         .foregroundStyle(ink)
-                        .symbolEffect(.bounce, value: bounce)
+                        .symbolEffect(.bounce, value: reduceMotion ? 0 : bounce)
                         .transition(.opacity.combined(with: .scale(scale: 0.6)))
                 }
             }
@@ -184,24 +184,22 @@ private struct GlassButtonBody: View {
             .frame(width: circle ? height : nil, height: height)
             .background {
                 if let prominent {
-                    shape.fill(LinearGradient(colors: [prominent, prominent.opacity(0.78)], startPoint: .top, endPoint: .bottom))
-                        .overlay(shape.inset(by: 1.5).fill(LinearGradient(colors: [.white.opacity(0.5), .clear], startPoint: .top, endPoint: .center)).opacity(0.55))
-                        .shadow(color: prominent.opacity(hovering ? 0.45 : 0.3), radius: 10, y: 3)
+                    shape.fill(prominent.opacity(hovering ? 1 : 0.90))
                 } else {
                     shape.fill(.white.opacity(hovering ? 0.15 : 0.08))
                 }
             }
-            .overlay(GlassRim(shape: shape, intensity: prominent == nil ? 0.85 : 0.7))
+            .overlay(shape.strokeBorder(.white.opacity(hovering ? 0.22 : 0.10), lineWidth: 0.75))
             .contentShape(shape)
-            .scaleEffect(configuration.isPressed ? 0.95 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
             .brightness(configuration.isPressed ? -0.05 : 0)
             .modifier(ShakeEffect(shakes: shakes))
             // A loading button stays fully opaque even though its action is disabled.
             .opacity(enabled || loading ? 1 : 0.42)
             .allowsHitTesting(!loading)
-            .animation(.spring(response: 0.24, dampingFraction: 0.7), value: configuration.isPressed)
+            .animation(reduceMotion ? nil : .spring(response: 0.24, dampingFraction: 0.85), value: configuration.isPressed)
             .animation(.easeOut(duration: 0.15), value: hovering)
-            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: covered)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: covered)
             .onHover { hovering = $0 }
             .onChange(of: loading) { wasLoading, isLoading in
                 guard wasLoading, !isLoading else { return }
@@ -231,10 +229,10 @@ struct GlassTextField: View {
         .font(.system(size: 12.5, design: monospaced ? .monospaced : .default))
         .focused($focused)
         .padding(.horizontal, 11)
-        .frame(height: 30)
-        .background(shape.fill(.black.opacity(focused ? 0.30 : 0.22)))
-        .overlay(shape.strokeBorder(LinearGradient(colors: [.black.opacity(0.3), .white.opacity(0.14)], startPoint: .top, endPoint: .bottom), lineWidth: 0.8))
-        .overlay(shape.strokeBorder(Palette.mint.opacity(focused ? 0.65 : 0), lineWidth: 1.2))
+        .frame(height: 32)
+        .background(shape.fill(Palette.canvas.opacity(0.9)))
+        .overlay(shape.strokeBorder(Palette.border, lineWidth: 0.8))
+        .overlay(shape.strokeBorder(Palette.accent.opacity(focused ? 0.65 : 0), lineWidth: 1.2))
         .animation(.easeOut(duration: 0.15), value: focused)
     }
 }

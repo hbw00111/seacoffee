@@ -26,7 +26,7 @@ Native SwiftUI + AppKit. No Electron, no third-party runtime dependencies.
   | Grok | SuperGrok current period | Reuses your `grok login` session |
 
 - **Privacy first**: only event types, timestamps, project folder names, and model names are read. Conversation content is never stored or uploaded. Logins borrowed from other tools are read-only.
-- Quota rings: green at 50% or more, yellow at 20–49%, red below 20%, grey when unknown. Unknown data is never shown as 0% or 100%.
+- Quota indicators (small rings when collapsed, bars when expanded): green at 50% or more, yellow at 20–49%, red below 20%, grey when unknown. Unknown data is never shown as 0% or 100%.
 - Respects the system "Reduce motion" setting. On Macs without a notch it appears as a pill at the top of the screen.
 
 ## Install
@@ -48,12 +48,12 @@ The app is built to `dist/Sea Coffee.app`; drag it to Applications if you like. 
 
 Open **Settings** and connect the sources you use:
 
-- **Codex API**: enter your Sub2API site URL, API key, and the balance that counts as a full ring, then click "保存并刷新" (Save and refresh). Only `GET /v1/usage` is called; no model requests are sent. After each top-up, the baseline moves to the new balance automatically.
+- **Codex API**: enter your Sub2API site URL, API key, and the balance that counts as full, then click "保存并刷新" (Save and refresh). Only `GET /v1/usage` is called; no model requests are sent. After each top-up, the baseline moves to the new balance automatically.
 - **Codex official**: switch the connection mode and click "连接官方账号" (Connect official account). A separate Codex home directory is used, so your existing Codex login is untouched.
 - **Cline Pass**: create an API key at [app.cline.bot](https://app.cline.bot) and paste it in, or sign in with a device code in your browser.
 - **Claude**: sign in with `claude` in a terminal first, then click "连接 Claude Code" (Connect Claude Code).
 - **Grok**: run `grok login` first, then click "连接 Grok" (Connect Grok). After that, an expired token is refreshed by the Grok CLI automatically.
-- **Task status**: all five agents are followed by default; each can be turned off. When Pi uses Cline Pass, the completion label names the channel and the usage shows up in the Cline ring.
+- **Task status**: all five agents are followed by default; each can be turned off. When Pi uses Cline Pass, the completion label names the channel and the usage counts toward the Cline quota.
 
 To start Sea Coffee when you log in, turn on "开机自启" (Launch at login) under "外观与交互" (Appearance and interaction) in Settings; it takes effect immediately.
 

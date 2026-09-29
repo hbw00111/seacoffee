@@ -26,6 +26,17 @@ struct PlanLane: Identifiable {
     var primary: Quota? { snapshot?.quotas.first }
 }
 
+/// Keep the same window selection and sizing in the view and panel geometry.
+enum QuotaPresentation {
+    static func windows(_ snapshot: UsageSnapshot?, totalOnly: Bool = false) -> [Quota] {
+        let all = snapshot?.quotas ?? []
+        if totalOnly { return Array(all.prefix(1)) }
+        let selected = all.filter { ["5 小时", "每周", "7 天"].contains($0.label) }
+        return selected.isEmpty ? Array(all.prefix(1)) : Array(selected.prefix(2))
+    }
+    static func height(_ count: Int) -> CGFloat { 34 + CGFloat(max(1, count)) * 20 }
+}
+
 struct CompletionPresentation: Identifiable {
     let id = UUID()
     let startedAt = Date()
@@ -98,7 +109,10 @@ final class IslandModel: ObservableObject {
     var completionWidth: CGFloat { hasNotch ? notchWidth : 180 }
     var islandWidth: CGFloat { completion != nil ? completionWidth : expanded ? max(360, compactWidth) : compactWidth }
     var islandHeight: CGFloat { completion != nil ? (hasNotch ? headerHeight : 0) + 72 + (completionCaption == nil ? 0 : CompletionCaption.height) : expanded ? headerHeight + detailHeight : headerHeight }
-    var detailHeight: CGFloat { 282 }
+    var detailHeight: CGFloat {
+        122 + QuotaPresentation.height(QuotaPresentation.windows(displayedSnapshot, totalOnly: source == .sub2api).count)
+            + planLanes.reduce(0) { $0 + QuotaPresentation.height(QuotaPresentation.windows($1.snapshot).count) + 0.5 }
+    }
     var surfaceTopInset: CGFloat { 0 }
     var animation: Animation { reduceMotion ? .easeOut(duration: 0.16) : .spring(response: 0.48, dampingFraction: 0.86) }
     var openingAnimation: Animation { reduceMotion ? .easeOut(duration: 0.1) : .spring(response: 0.32, dampingFraction: 0.9) }
@@ -132,22 +146,22 @@ final class IslandModel: ObservableObject {
     }
     var displayedClineSnapshot: UsageSnapshot? {
         demo ? UsageSnapshot(quotas: [
-            Quota(id: "five_hour", label: "5 小时", remaining: 72, limit: 100, monetary: false),
-            Quota(id: "weekly", label: "每周", remaining: 61, limit: 100, monetary: false),
+            Quota(id: "five_hour", label: "5 小时", remaining: 72, limit: 100, monetary: false, resetsAt: Date().addingTimeInterval(10800)),
+            Quota(id: "weekly", label: "每周", remaining: 61, limit: 100, monetary: false, resetsAt: Date().addingTimeInterval(259200)),
             Quota(id: "monthly", label: "每月", remaining: 48, limit: 100, monetary: false)
         ], source: "Cline Pass") : clineSnapshot
     }
     var displayedClaudeSnapshot: UsageSnapshot? {
         demo ? UsageSnapshot(quotas: [
-            Quota(id: "claude-five_hour", label: "5 小时", remaining: 58, limit: 100, monetary: false),
-            Quota(id: "claude-seven_day", label: "每周", remaining: 83, limit: 100, monetary: false)
+            Quota(id: "claude-five_hour", label: "5 小时", remaining: 58, limit: 100, monetary: false, resetsAt: Date().addingTimeInterval(7200)),
+            Quota(id: "claude-seven_day", label: "每周", remaining: 83, limit: 100, monetary: false, resetsAt: Date().addingTimeInterval(345600))
         ], source: "Claude") : claudeSnapshot
     }
     var showsClaude: Bool { demo || claudeAccount.enabled || claudeSnapshot != nil }
     // Claude polls every two minutes, so allow one missed refresh before dimming.
     var claudeIsStale: Bool { !demo && claudeSnapshot.map { Date().timeIntervalSince($0.fetchedAt) > 300 } == true }
     var displayedGrokSnapshot: UsageSnapshot? {
-        demo ? UsageSnapshot(quotas: [Quota(id: "grok-credits", label: "每周", remaining: 90, limit: 100, monetary: false)],
+        demo ? UsageSnapshot(quotas: [Quota(id: "grok-credits", label: "每周", remaining: 90, limit: 100, monetary: false, resetsAt: Date().addingTimeInterval(172800))],
                              source: "Grok") : grokSnapshot
     }
     var showsGrok: Bool { demo || grokAccount.enabled || grokSnapshot != nil }

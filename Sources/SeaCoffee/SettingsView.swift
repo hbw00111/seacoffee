@@ -3,9 +3,12 @@ import IslandCore
 
 struct SettingsView: View {
     @ObservedObject var model: IslandModel
+    @Environment(\.glassSnapshot) private var snapshot
+    @State private var section: SettingsSection = .accounts
     @State private var site: String
     @State private var baseline: String
     @State private var key = ""
+    @State private var clineKey = ""
     @State private var deleteKey = false
     @State private var sessionPath: String
     @State private var binary: String
@@ -18,24 +21,30 @@ struct SettingsView: View {
     @State private var keyResult = ""
     @State private var keyError = false
 
-    init(model: IslandModel) {
+    init(model: IslandModel, previewSection: SettingsSection? = nil) {
+        _section = State(initialValue: previewSection ?? .accounts)
+        _hasSavedKey = State(initialValue: previewSection == nil ? nil : false)
         self.model = model
-        _site = State(initialValue: model.site)
+        _site = State(initialValue: previewSection == nil ? model.site : "")
         _baseline = State(initialValue: IslandModel.baselineText(model.baseline))
-        _sessionPath = State(initialValue: model.sessionPath)
-        _binary = State(initialValue: UserDefaults.standard.string(forKey: "codexBinary") ?? "")
+        _sessionPath = State(initialValue: previewSection == nil ? model.sessionPath : "~/.codex/sessions")
+        _binary = State(initialValue: previewSection == nil ? UserDefaults.standard.string(forKey: "codexBinary") ?? "" : "")
         _reducedMotion = State(initialValue: model.reducedMotion)
         _hoverEnabled = State(initialValue: model.hoverEnabled)
     }
     var body: some View {
         ZStack(alignment: .bottom) {
             SettingsBackdrop()
-            ScrollView {
+            HStack(spacing: 0) {
+                sidebar
+                Rectangle().fill(Palette.border).frame(width: 1)
+                ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     header
+                    if section == .accounts {
                     codexSection
                     GlassSection(title: "Cline Pass · 独立连接", icon: ServiceStyle.cline.icon, tint: ServiceStyle.cline.tint) {
-                        ClineAccountSettings(account: model.clineAccount)
+                        ClineAccountSettings(account: model.clineAccount, apiKey: $clineKey)
                         GlassDivider()
                         statusRow {
                             Text(model.clineMessage).multilineTextAlignment(.trailing).textSelection(.enabled)
@@ -64,6 +73,8 @@ struct SettingsView: View {
                             .disabled(model.authorizingCredentials || model.clineAccount.busy || model.claudeAccount.busy)
                         }
                     }
+                    }
+                    if section == .activity {
                     GlassSection(title: "任务状态", symbol: "waveform.path", tint: ActivityAppearance.running.tint) {
                         SettingRow("Codex 会话目录") { GlassTextField(placeholder: "~/.codex/sessions", text: $sessionPath, monospaced: true) }
                         caption("在本机监听各工具的运行、完成和中断状态，只读取事件类型、时间和项目目录名，不保存或上传对话内容。")
@@ -91,6 +102,8 @@ struct SettingsView: View {
                                 .buttonStyle(GlassButtonStyle())
                         }
                     }
+                    }
+                    if section == .appearance {
                     GlassSection(title: "外观与交互", symbol: "sparkles", tint: Color(red: 0.78, green: 0.62, blue: 1)) {
                         SettingRow("悬停时展开") { HStack { Spacer(); Toggle("悬停时展开", isOn: $hoverEnabled).labelsHidden() } }
                         GlassDivider()
@@ -99,16 +112,18 @@ struct SettingsView: View {
                         // Takes effect at once through the system's login items; not part of Save.
                         SettingRow("开机自启") { LaunchAtLoginToggle(launch: model.launchAtLogin) }
                         GlassDivider()
-                        caption("额度圆环：50% 及以上为绿，20%–49% 为黄，低于 20% 为红。左侧橙色运行、红色报错、绿色完成，数字为运行中的对话数。")
+                        caption("额度指示：50% 及以上为绿，20%–49% 为黄，低于 20% 为红。左侧橙色运行、红色报错、绿色完成，数字为运行中的对话数。")
                         caption("完成时两侧合拢为与刘海等宽的黑色背景，对勾立体翻转后收回。减少动态效果时改为静态对勾；额度每分钟刷新。")
                     }
                 }
-                .toggleStyle(.switch).tint(Palette.mint)
+                }
+                .toggleStyle(.switch).tint(Palette.accent)
                 .padding(.horizontal, 26)
                 .padding(.top, 46)
                 .padding(.bottom, 92)
                 .disabled(saving)
             }
+            .id(section)
             .scrollIndicators(.never)
             // Content fades out under the traffic lights instead of colliding with them.
             .mask {
@@ -117,39 +132,64 @@ struct SettingsView: View {
                     Color.black
                 }
             }
+            }
             actionBar
-                .padding(.horizontal, 18)
+                .padding(.leading, 194).padding(.trailing, 18)
                 .padding(.bottom, 16)
         }
-        .frame(width: 620, height: 700)
+        .frame(width: 800, height: 700)
         .ignoresSafeArea()
         .foregroundStyle(.white)
         .preferredColorScheme(.dark)
-        .task { await checkStoredKey() }
+        .task { if !snapshot { await checkStoredKey() } }
     }
-    private var header: some View {
-        HStack(spacing: 14) {
-            Image(systemName: "sparkle").font(.system(size: 24, weight: .medium)).foregroundStyle(.white)
-                .frame(width: 52, height: 52)
-                .background {
-                    RoundedRectangle(cornerRadius: 15, style: .continuous)
-                        .fill(LinearGradient(colors: [Palette.mint.opacity(0.9), Palette.blue.opacity(0.75)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                        .overlay(GlassSheen(strength: 2.5).clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous)))
-                        .shadow(color: Palette.mint.opacity(0.35), radius: 14, y: 5)
-                }
-                .overlay(GlassRim(shape: RoundedRectangle(cornerRadius: 15, style: .continuous)))
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Sea Coffee").font(.system(size: 22, weight: .semibold))
-                Text("AI 任务状态与剩余额度").font(.system(size: 11.5)).foregroundStyle(.white.opacity(0.55))
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 9) {
+                Image(systemName: "sparkle").foregroundStyle(Palette.accent)
+                Text("Sea Coffee").font(.system(size: 14, weight: .semibold))
+            }.padding(.bottom, 30)
+            Text("偏好设置").font(.system(size: 10, weight: .medium))
+                .foregroundStyle(Palette.dim).padding(.bottom, 8)
+            ForEach(SettingsSection.allCases) { item in
+                Button { section = item } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: item.symbol).frame(width: 16)
+                        Text(item.rawValue)
+                        Spacer()
+                    }
+                    .font(.system(size: 12, weight: section == item ? .semibold : .regular))
+                    .foregroundStyle(section == item ? .white : Palette.dim)
+                    .padding(.horizontal, 10).frame(height: 34)
+                    .background(RoundedRectangle(cornerRadius: 6)
+                        .fill(section == item ? Palette.accent.opacity(0.18) : .clear))
+                    .contentShape(Rectangle())
+                }.buttonStyle(.plain)
+                    .accessibilityAddTraits(section == item ? .isSelected : [])
             }
             Spacer()
-            Text("PREVIEW 0.1").font(.system(size: 9, weight: .medium, design: .monospaced)).tracking(1.4)
-                .foregroundStyle(.white.opacity(0.6))
-                .padding(.horizontal, 10).frame(height: 22)
-                .background(Capsule().fill(.white.opacity(0.07)))
-                .overlay(GlassRim(shape: Capsule(), intensity: 0.7))
+            Button { NSApplication.shared.terminate(nil) } label: {
+                Label("退出应用", systemImage: "power")
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(GlassButtonStyle())
+            .keyboardShortcut("q", modifiers: .command)
+            .help("退出应用并关闭顶部状态岛")
+            .accessibilityLabel("退出 Sea Coffee")
+            .padding(.bottom, 10)
+            Text("本机状态，一眼看清。")
+                .font(.system(size: 10)).foregroundStyle(Palette.dim)
         }
-        .padding(.leading, 4)
+        .padding(.horizontal, 16).padding(.top, 52).padding(.bottom, 24)
+        .frame(width: 176)
+        .background(Color.black.opacity(0.22))
+    }
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(section.rawValue).font(.system(size: 24, weight: .semibold)).tracking(-0.5)
+            Text(section.subtitle).font(.system(size: 12)).foregroundStyle(Palette.dim)
+        }.padding(.bottom, 8)
     }
     private var codexSection: some View {
         GlassSection(title: "Codex 账号与额度", icon: ServiceStyle.codex.icon, tint: ServiceStyle.codex.tint) {
@@ -190,7 +230,7 @@ struct SettingsView: View {
                         GlassTextField(placeholder: "100", text: $baseline).frame(width: 120)
                             // A detected top-up rewrites the baseline; show it so saving does not revert it.
                             .onChange(of: model.baselineRevision) { _, _ in baseline = IslandModel.baselineText(model.baseline) }
-                        Text("USD").font(.system(size: 11, weight: .medium)).foregroundStyle(.white.opacity(0.5))
+                        Text("USD").font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.dim)
                         Spacer(minLength: 0)
                     }
                 }
@@ -201,7 +241,7 @@ struct SettingsView: View {
                     .disabled(!key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .onChange(of: deleteKey) { _, _ in result = ""; saved = false }
                 }
-                caption("余额来自服务商。圆环按余额 ÷ 满格基准计算；套餐和 Key 配额优先使用服务端总额度。")
+                caption("余额来自服务商。额度指示按余额 ÷ 满格基准计算；套餐和 Key 配额优先使用服务端总额度。")
             } else {
                 HStack(spacing: 14) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -213,7 +253,7 @@ struct SettingsView: View {
                         model.account.binaryPath = binary
                         model.account.connect()
                     }
-                    .buttonStyle(GlassButtonStyle(prominent: Palette.mint))
+                    .buttonStyle(GlassButtonStyle(prominent: Palette.accent))
                 }
                 SettingRow("Codex CLI 路径") { GlassTextField(placeholder: "留空自动查找", text: $binary, monospaced: true) }
             }
@@ -232,13 +272,13 @@ struct SettingsView: View {
             HStack(spacing: 7) {
                 if saving { CometSpinner(size: 12, tint: .white.opacity(0.7)) }
                 else if !result.isEmpty { Image(systemName: saved ? "checkmark.circle.fill" : "exclamationmark.circle") }
-                Text(result.isEmpty ? (model.source == .sub2api ? "输入密钥后，点击保存并刷新" : "账号登录会自动保存；其他设置请点击保存") : result)
+                Text(result.isEmpty ? "修改完成后，保存设置并刷新额度" : result)
             }
             .font(.system(size: 11.5)).foregroundStyle(saving ? Color.white.opacity(0.55) : saved ? Palette.mint : result.isEmpty ? .white.opacity(0.55) : .red)
             .lineLimit(2)
             Spacer()
             Button("保存并刷新", action: save)
-                .buttonStyle(GlassButtonStyle(prominent: Palette.mint, loading: saving, succeeded: saved))
+                .buttonStyle(GlassButtonStyle(prominent: Palette.accent, loading: saving, succeeded: saved))
                 .keyboardShortcut(.defaultAction)
                 .disabled(saving)
         }
@@ -246,19 +286,20 @@ struct SettingsView: View {
         .frame(height: 50)
         .background {
             OuterShadow(shape: Capsule(), opacity: 0.4, radius: 18, y: 8)
-            // Blurs the scrolling settings underneath, not the desktop.
-            GlassSurface(shape: Capsule(), tintOpacity: 0.18, blending: .withinWindow)
+            // Opaque action surface stays legible above scrolling content.
+            RoundedRectangle(cornerRadius: 10).fill(Palette.surface)
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.border, lineWidth: 1))
         }
     }
     private func statusRow<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         HStack(alignment: .firstTextBaseline) {
             Text("连接状态").font(.system(size: 12.5)).foregroundStyle(.white.opacity(0.75))
             Spacer(minLength: 16)
-            content().font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))
+            content().font(.system(size: 11)).foregroundStyle(Palette.dim)
         }
     }
     private func caption(_ text: String) -> some View {
-        Text(text).font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true)
+        Text(text).font(.system(size: 11)).foregroundStyle(Palette.dim).fixedSize(horizontal: false, vertical: true)
     }
     private var draftKey: String { key.trimmingCharacters(in: .whitespacesAndNewlines) }
     private func pasteKey() {
@@ -347,7 +388,7 @@ struct SettingsView: View {
 
 private struct ClineAccountSettings: View {
     @ObservedObject var account: ClineAccount
-    @State private var apiKey = ""
+    @Binding var apiKey: String
     private enum Action { case key, login }
     /// The button the user pressed; background refreshes also set `busy` but must not spin a button.
     @State private var pending: Action?
@@ -365,7 +406,7 @@ private struct ClineAccountSettings: View {
                     .disabled(!account.hasAPIKey || account.busy)
             }
             Text("推荐：与 CodexBar 相同，用 API Key 直接查询 Cline Pass 配额，不需要浏览器登录。填写后优先使用 Key；也可以改用下方的账号登录。")
-                .font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true)
+                .font(.system(size: 11)).foregroundStyle(Palette.dim).fixedSize(horizontal: false, vertical: true)
             GlassDivider()
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -384,10 +425,10 @@ private struct ClineAccountSettings: View {
                 }
             }
             Text("在浏览器确认设备码后完成登录。登录凭据保存在仅当前用户可读的本地文件，自动刷新套餐配额。")
-                .font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true)
+                .font(.system(size: 11)).foregroundStyle(Palette.dim).fixedSize(horizontal: false, vertical: true)
             if let code = account.userCode {
                 HStack(spacing: 10) {
-                    Text("设备码").font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))
+                    Text("设备码").font(.system(size: 11)).foregroundStyle(Palette.dim)
                     Text(code).font(.system(size: 17, weight: .semibold, design: .monospaced)).tracking(2).textSelection(.enabled)
                     Spacer(minLength: 0)
                     Button("复制") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(code, forType: .string) }
@@ -417,7 +458,7 @@ private struct ClineAccountSettings: View {
                 .font(.system(size: 11.5, weight: .medium)).foregroundStyle(Palette.blue)
             }
             Text("显示 Cline Pass 套餐配额；本机任务状态仍来自 Codex。")
-                .font(.system(size: 11)).foregroundStyle(.white.opacity(0.5))
+                .font(.system(size: 11)).foregroundStyle(Palette.dim)
         }
         .onChange(of: account.busy) { _, busy in if !busy { pending = nil } }
     }
@@ -446,7 +487,7 @@ private struct ClaudeAccountSettings: View {
                 }
             }
             Text("复用本机 Claude Code 的登录，不需要 API Key。通过系统自带的 security 工具读取“Claude Code-credentials”（Claude Code 也用它写入），不弹窗，重新编译或更新后也不需要再授权；仅当该方式失败时才请求钥匙串授权。只读不写，不会影响 Claude Code 的登录；令牌仅保存在内存，每 2 分钟查询一次。")
-                .font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true)
+                .font(.system(size: 11)).foregroundStyle(Palette.dim).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
                 Button(account.enabled ? "重新读取" : "连接 Claude Code") { pending = true; account.connect() }
                     .buttonStyle(GlassButtonStyle(prominent: account.enabled ? nil : accent,
@@ -487,7 +528,7 @@ private struct GrokAccountSettings: View {
                 }
             }
             Text("复用 grok login 写入的 ~/.grok/auth.json，不需要 API Key，也不会弹出钥匙串授权。只读不写；Grok 令牌约 6 小时过期，过期时会在后台运行一次 grok models，让 Grok CLI 自己续期（不发起对话、不消耗额度）。每 2 分钟查询一次。")
-                .font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true)
+                .font(.system(size: 11)).foregroundStyle(Palette.dim).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
                 Button(account.enabled ? "立即刷新" : "连接 Grok") { pending = true; account.connect() }
                     .buttonStyle(GlassButtonStyle(prominent: account.enabled ? nil : ServiceStyle.grok.tint,
@@ -512,14 +553,13 @@ private struct TrailingIconLabelStyle: LabelStyle {
     }
 }
 
-/// Window background: live blur of the desktop with soft colour pools for the glass to refract.
+/// Neutral, near-opaque backdrop keeps settings readable over any desktop.
 private struct SettingsBackdrop: View {
+    @Environment(\.glassSnapshot) private var snapshot
     var body: some View {
         ZStack {
-            BackdropBlur(material: .hudWindow)
-            Color.black.opacity(0.28)
-            Circle().fill(Palette.mint.opacity(0.20)).frame(width: 420).blur(radius: 120).offset(x: -250, y: -300)
-            Circle().fill(Palette.blue.opacity(0.18)).frame(width: 460).blur(radius: 130).offset(x: 260, y: 320)
+            if !snapshot { BackdropBlur(material: .hudWindow) }
+            Palette.canvas.opacity(0.96)
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
@@ -550,7 +590,7 @@ private struct GlassSection<Content: View>: View {
             VStack(alignment: .leading, spacing: 12) { content }
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .glassCard(radius: 20)
+                .glassCard(radius: 16)
         }
     }
 }
@@ -566,6 +606,21 @@ private struct SettingRow<Content: View>: View {
             Text(title).font(.system(size: 12.5)).foregroundStyle(.white.opacity(0.75))
                 .frame(width: 118, alignment: .leading)
             content.frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+enum SettingsSection: String, CaseIterable, Identifiable {
+    case accounts = "账号与额度", activity = "任务监测", appearance = "外观与交互"
+    var id: String { rawValue }
+    var symbol: String {
+        switch self { case .accounts: return "person.crop.circle"; case .activity: return "waveform.path"; case .appearance: return "slider.horizontal.3" }
+    }
+    var subtitle: String {
+        switch self {
+        case .accounts: return "连接你的 AI 服务，集中查看剩余额度。"
+        case .activity: return "选择需要关注的工具，掌握每次任务的进展。"
+        case .appearance: return "让状态岛按照你的习惯工作。"
         }
     }
 }

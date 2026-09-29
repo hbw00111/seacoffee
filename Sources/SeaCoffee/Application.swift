@@ -12,6 +12,9 @@ enum SeaCoffeeMain {
         if let index = CommandLine.arguments.firstIndex(of: "--render-preview"), CommandLine.arguments.count > index + 1 {
             PreviewRenderer.render(to: CommandLine.arguments[index + 1]); return
         }
+        if let index = CommandLine.arguments.firstIndex(of: "--render-settings"), CommandLine.arguments.count > index + 1 {
+            PreviewRenderer.renderSettings(to: CommandLine.arguments[index + 1]); return
+        }
         let delegate = AppDelegate()
         app.delegate = delegate
         withExtendedLifetime(delegate) { app.run() }
@@ -36,7 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         EditingMenu.install()
-        panel = IslandPanel(contentRect: NSRect(x: 0, y: 0, width: 520, height: 370),
+        panel = IslandPanel(contentRect: NSRect(x: 0, y: 0, width: 520, height: 480),
                             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.title = "Sea Coffee"
         panel.backgroundColor = .clear; panel.isOpaque = false; panel.hasShadow = false
@@ -89,7 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.notchWidth = max(120, right.minX - left.maxX)
         } else { model.notchWidth = 120 }
         let top = screen.frame.maxY - (inset > 0 ? 0 : 10)
-        panel.setFrame(NSRect(x: screen.frame.midX - 260, y: top - 370, width: 520, height: 370), display: true)
+        panel.setFrame(NSRect(x: screen.frame.midX - 260, y: top - 480, width: 520, height: 480), display: true)
     }
     private func updateMouse() {
         guard panel.isVisible else { return }
@@ -128,7 +131,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func quit() { NSApp.terminate(nil) }
     private func showSettings() {
         if settingsWindow == nil {
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 700),
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 700),
                                   styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView], backing: .buffered, defer: false)
             window.title = "Sea Coffee · 设置"; window.isReleasedWhenClosed = false
             window.titlebarAppearsTransparent = true; window.titleVisibility = .hidden
@@ -147,6 +150,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 @MainActor
 enum PreviewRenderer {
+    static func renderSettings(to path: String) {
+        let model = IslandModel(); model.source = .sub2api
+        for (index, section) in SettingsSection.allCases.enumerated() {
+            let view = SettingsView(model: model, previewSection: section).environment(\.glassSnapshot, true)
+            let host = NSHostingView(rootView: view)
+            let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 800, height: 700),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            window.contentView = host
+            window.orderFront(nil)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+            host.layoutSubtreeIfNeeded()
+            guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { exit(1) }
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            guard let data = bitmap.representation(using: .png, properties: [:]) else { exit(1) }
+            window.orderOut(nil)
+            let url = URL(fileURLWithPath: path).deletingPathExtension().appendingPathExtension("\(index).png")
+            do { try data.write(to: url) } catch { fputs("\(error)\n", stderr); exit(1) }
+        }
+    }
+
     static func render(to path: String) {
         let running = IslandModel(); running.demo = true; running.demoRunning = true
         running.expanded = true; running.reducedMotion = true; running.notchWidth = 120; running.notchHeight = 0
@@ -190,18 +213,18 @@ struct PreviewCanvas: View {
                 HStack(spacing: 0) {
                     VStack(spacing: 14) {
                         Text("运行中").font(.system(size: 11)).foregroundStyle(.white.opacity(0.45))
-                        IslandView(model: running).frame(width: 440, height: 320, alignment: .top)
+                        IslandView(model: running).frame(width: 440, height: 440, alignment: .top)
                     }
                     VStack(spacing: 14) {
                         Text("本轮完成").font(.system(size: 11)).foregroundStyle(.white.opacity(0.45))
-                        IslandView(model: done).frame(width: 440, height: 320, alignment: .top)
+                        IslandView(model: done).frame(width: 440, height: 440, alignment: .top)
                     }
                 }.padding(.top, 24)
                 Spacer(minLength: 0)
                 Text("图中为演示数据 · 支持 Sub2API、Codex 官方、Cline Pass、Claude 与 Grok")
                     .font(.system(size: 10)).foregroundStyle(.white.opacity(0.3)).padding(.bottom, 30)
             }
-        }.frame(width: 960, height: 680).foregroundStyle(.white).preferredColorScheme(.dark)
+        }.frame(width: 960, height: 800).foregroundStyle(.white).preferredColorScheme(.dark)
         .environment(\.glassSnapshot, true)
     }
 }

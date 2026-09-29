@@ -7,7 +7,11 @@ enum Palette {
     static let clay = Color(red: 0.85, green: 0.47, blue: 0.34)
     static let silver = Color(white: 0.85)
     static let lilac = Color(red: 0.78, green: 0.62, blue: 1)
-    static let dim = Color.white.opacity(0.52)
+    static let accent = Color(red: 0.51, green: 0.55, blue: 0.98)
+    static let canvas = Color(red: 0.055, green: 0.055, blue: 0.063)
+    static let surface = Color(red: 0.085, green: 0.085, blue: 0.098)
+    static let border = Color.white.opacity(0.10)
+    static let dim = Color.white.opacity(0.66)
 }
 
 /// Icon and colour for each quota source, shared by the island and Settings.
@@ -52,7 +56,7 @@ struct IslandSurface<S: InsettableShape>: View {
     var glowOpacity: Double = 0
     var body: some View {
         ZStack(alignment: .top) {
-            GlassSurface(shape: shape, tintOpacity: 0.42, rim: 0)
+            Palette.canvas
             Ellipse().fill(glow.opacity(glowOpacity))
                 .frame(width: 340, height: 150).blur(radius: 46)
                 .frame(maxHeight: .infinity, alignment: .bottom).offset(y: 70)
@@ -66,7 +70,7 @@ struct IslandSurface<S: InsettableShape>: View {
         }
         .clipShape(shape)
         .overlay {
-            GlassRim(shape: shape, intensity: 1 - blackness)
+            GlassRim(shape: shape, intensity: 0.55 * (1 - blackness))
                 // Keep the rim off the screen edge and the notch strip.
                 .mask {
                     VStack(spacing: 0) {
@@ -117,7 +121,7 @@ struct IslandView: View {
                 // Collapsed at the notch the island stays black so it reads as part of the camera housing.
                 IslandSurface(shape: shape, blackness: model.hasNotch && !model.expanded ? 1 : 0,
                               headerBand: model.hasNotch ? model.headerHeight : 0,
-                              glow: model.activityAppearance.tint, glowOpacity: model.isRunning ? 0.22 : 0.06)
+                              glow: model.activityAppearance.tint, glowOpacity: 0)
             }
             .background {
                 OuterShadow(shape: shape, opacity: model.expanded ? 0.5 : model.hasNotch ? 0 : 0.18,
@@ -128,7 +132,7 @@ struct IslandView: View {
             .padding(.top, model.surfaceTopInset)
             Spacer(minLength: 0)
         }
-        .frame(width: 520, height: 370, alignment: .top)
+        .frame(width: 520, height: 480, alignment: .top)
         .preferredColorScheme(.dark)
     }
     private var shape: UnevenRoundedRectangle {
@@ -186,124 +190,106 @@ struct IslandView: View {
         .accessibilityAddTraits(.isButton)
     }
     private var detail: some View {
-        VStack(spacing: 8) {
-            HStack(alignment: .center, spacing: 14) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Text(model.demo ? "Sub2API · 钱包余额" : model.source.title + (model.displayedSnapshot?.balance != nil ? " · 钱包余额" : ""))
-                            .font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.dim)
-                        if model.demo { demoBadge }
-                    }
-                    if model.refreshing && model.displayedSnapshot == nil {
-                        SkeletonBar(width: 112, height: 24).padding(.vertical, 5)
-                    } else {
-                        Text(amount).font(.system(size: model.primary == nil ? 23 : 28, weight: .medium, design: .rounded))
-                            .tracking(-0.5).contentTransition(.numericText()).foregroundStyle(.white.opacity(0.96))
-                    }
-                    Text(quotaCaption).font(.system(size: 10)).foregroundStyle(Palette.dim).lineLimit(1)
-                }
-                Spacer(minLength: 0)
-                ZStack {
-                    QuotaRing(fraction: model.primary?.fraction, lineWidth: 5, stale: model.isStale, reducedMotion: model.reduceMotion)
-                    VStack(spacing: 1) {
-                        Text(model.primary.map { "\($0.percent)%" } ?? "—")
-                            .font(.system(size: 16, weight: .semibold, design: .rounded)).monospacedDigit()
-                            .contentTransition(.numericText())
-                        Text("剩余").font(.system(size: 8)).foregroundStyle(Palette.dim)
-                    }
-                }.frame(width: 62, height: 62)
-            }
-            .padding(.horizontal, 14)
-            .frame(height: 92)
-            .glassCard(radius: 18, tint: QuotaRing.tint(for: model.primary?.fraction))
-
-            HStack(spacing: 8) {
-                ForEach(model.planLanes) { planCard($0, compact: model.planLanes.count >= 3) }
-            }
-            .frame(height: 72)
-
+        VStack(spacing: 0) {
             HStack(spacing: 10) {
-                ActivityCore(state: model.activityAppearance, reducedMotion: model.reduceMotion,
-                             count: model.activeConversationCount)
-                    .frame(width: 26, height: 26)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(model.statusTitle).font(.system(size: 11, weight: .medium)).foregroundStyle(.white.opacity(0.93))
-                    Text(model.statusDetail).font(.system(size: 9)).foregroundStyle(Palette.dim).lineLimit(1)
+                RoundedRectangle(cornerRadius: 2).fill(model.activityAppearance.tint)
+                    .frame(width: 3, height: 28)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(model.statusTitle).font(.system(size: 13, weight: .semibold))
+                    Text(model.statusDetail).font(.system(size: 10)).foregroundStyle(Palette.dim).lineLimit(1)
                 }
-                Spacer(minLength: 0)
+                Spacer(minLength: 4)
                 if model.demo || model.canOpen(model.focusAgent) {
-                    Button { model.openAgent() } label: {
-                        Image(systemName: "arrow.up.right").font(.system(size: 10, weight: .semibold))
-                    }
-                    .buttonStyle(GlassButtonStyle(compact: true, circle: true))
-                    .help("打开 \(model.focusAgent.name)").accessibilityLabel("打开 \(model.focusAgent.name)")
+                    Button { model.openAgent() } label: { Image(systemName: "arrow.up.right") }
+                        .buttonStyle(GlassButtonStyle(compact: true))
+                        .help("打开 \(model.focusAgent.name)")
+                        .accessibilityLabel("打开 \(model.focusAgent.name)")
                 }
+            }.frame(height: 52)
+            GlassDivider()
+            HStack {
+                Text("账号").font(.system(size: 10, weight: .medium))
+                Spacer()
+                Text("剩余额度").font(.system(size: 10, weight: .medium))
+            }.foregroundStyle(Palette.dim).frame(height: 26)
+            quotaRow(style: .codex, title: model.source.title,
+                     windows: QuotaPresentation.windows(model.displayedSnapshot, totalOnly: model.source == .sub2api),
+                     totalOnly: model.source == .sub2api, message: "在设置中连接账号",
+                     loading: model.refreshing && model.displayedSnapshot == nil, stale: model.isStale)
+            ForEach(model.planLanes) { lane in
+                GlassDivider()
+                quotaRow(style: ServiceStyle(laneID: lane.id), title: lane.title,
+                         windows: QuotaPresentation.windows(lane.snapshot),
+                         message: lane.message, loading: lane.loading, stale: lane.stale)
             }
-            .padding(.leading, 12).padding(.trailing, 13)
-            .frame(height: 50)
-            .glassCard(radius: 16, tint: model.activityAppearance == .idle ? nil : model.activityAppearance.tint)
-
-            HStack(spacing: 5) {
-                Circle().fill(model.snapshot != nil || model.demo ? Palette.mint : Color.orange)
-                    .frame(width: 5, height: 5)
-                    .shadow(color: model.snapshot != nil || model.demo ? Palette.mint : Color.orange, radius: 3)
-                Text(model.demo ? "演示数据 · 各账号独立刷新" : "Codex · 订阅额度 · 独立刷新").font(.system(size: 9)).foregroundStyle(Palette.dim).lineLimit(1)
-                    .help(model.serviceMessage)
-                Spacer(minLength: 6)
+            Spacer(minLength: 0)
+            GlassDivider()
+            HStack {
+                Text(model.demo ? "演示数据" : "各账号独立刷新")
+                    .font(.system(size: 9)).foregroundStyle(Palette.dim)
+                Spacer()
                 Button { model.openSettings?() } label: {
-                    Label("设置", systemImage: "gearshape").font(.system(size: 10, weight: .medium))
+                    Label("管理账号", systemImage: "slider.horizontal.3")
                 }.buttonStyle(GlassButtonStyle(compact: true))
-            }
-            .padding(.leading, 6)
-            .frame(height: 26)
+            }.frame(height: 34)
         }
-        .padding(.horizontal, 14)
-        .padding(.top, 6)
+        .padding(.horizontal, 18)
+        .padding(.bottom, 6)
         .frame(height: model.detailHeight, alignment: .top)
     }
-    private var demoBadge: some View {
-        Text("演示").font(.system(size: 8, weight: .semibold)).foregroundStyle(Palette.mint)
-            .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(Capsule().fill(Palette.mint.opacity(0.14)))
-            .overlay(GlassRim(shape: Capsule(), intensity: 0.5))
+    private func resetCaption(_ quota: Quota) -> String {
+        guard let reset = quota.resetsAt else { return "重置时间未提供" }
+        if reset <= Date() { return "已到重置时间 · 待刷新" }
+        let day = Calendar.current.isDateInToday(reset) ? "今天" :
+            Calendar.current.isDateInTomorrow(reset) ? "明天" : reset.formatted(.dateTime.month().day())
+        return "\(day) \(reset.formatted(date: .omitted, time: .shortened)) 重置"
     }
-    private func planCard(_ lane: PlanLane, compact: Bool) -> some View {
-        let primary = lane.primary
-        let ring = QuotaRing(fraction: primary?.fraction, lineWidth: compact ? 2.5 : 4, stale: lane.stale, reducedMotion: model.reduceMotion)
-        return HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 5) {
-                    let style = ServiceStyle(laneID: lane.id)
-                    style.icon.resizable().aspectRatio(contentMode: .fit)
-                        .foregroundStyle(style.tint).frame(width: 11, height: 11)
-                    // Narrow cards drop the product suffix ("Cline Pass" → "Cline"); the icon identifies it.
-                    Text(compact ? lane.title.split(separator: " ").first.map(String.init) ?? lane.title : lane.title)
-                        .font(.system(size: 10.5, weight: .medium)).foregroundStyle(Palette.dim).lineLimit(1)
-                    if model.demo && !compact { demoBadge }
-                    if compact { Spacer(minLength: 0); ring.frame(width: 15, height: 15) }
+    private func quotaRow(style: ServiceStyle, title: String, windows: [Quota],
+                          totalOnly: Bool = false, message: String, loading: Bool, stale: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 7) {
+                style.icon.resizable().aspectRatio(contentMode: .fit)
+                    .foregroundStyle(.white.opacity(0.8)).frame(width: 13, height: 13)
+                Text(title).font(.system(size: 11, weight: .semibold))
+                if stale { Text("待更新").font(.system(size: 9)).foregroundStyle(Palette.dim) }
+                Spacer()
+                if totalOnly, model.displayedSnapshot?.balance != nil {
+                    Text(amount).font(.system(size: 10)).monospacedDigit().foregroundStyle(Palette.dim)
                 }
-                if lane.loading {
-                    SkeletonBar(width: compact ? 44 : 52, height: 17).padding(.vertical, 3)
-                } else {
-                    Text(primary.map { "\($0.percent)%" } ?? "未连接")
-                        .font(.system(size: primary == nil ? 15 : 19, weight: .medium, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.96)).contentTransition(.numericText())
+            }.frame(height: 16)
+            if windows.isEmpty {
+                HStack {
+                    Text(loading ? "正在查询额度…" : message).font(.system(size: 9)).lineLimit(1)
+                    Spacer()
+                    if loading { CometSpinner(size: 11, tint: Palette.accent) }
+                    else { Text("—").font(.system(size: 11)) }
+                }.foregroundStyle(Palette.dim).frame(height: 20)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(windows) { quota in
+                        HStack(spacing: 8) {
+                            Text(totalOnly ? "总额度" : quota.label == "7 天" ? "每周" : quota.label)
+                                .font(.system(size: 10, weight: .medium)).frame(width: 38, alignment: .leading)
+                            Text(totalOnly ? quotaCaption : resetCaption(quota))
+                                .font(.system(size: 9)).foregroundStyle(Palette.dim).lineLimit(1)
+                                .help(totalOnly ? quotaCaption : resetCaption(quota))
+                            Spacer(minLength: 0)
+                            GeometryReader { proxy in
+                                ZStack(alignment: .leading) {
+                                    Capsule().fill(.white.opacity(0.08))
+                                    Capsule().fill(QuotaRing.tint(for: quota.fraction).opacity(stale ? 0.4 : 0.85))
+                                        .frame(width: proxy.size.width * min(1, max(0, quota.fraction)))
+                                }
+                            }.frame(width: 48, height: 3).accessibilityHidden(true)
+                            Text("\(quota.percent)%").font(.system(size: 11, weight: .semibold))
+                                .monospacedDigit().frame(width: 33, alignment: .trailing)
+                        }.frame(height: 20)
+                        .accessibilityElement(children: .combine)
+                    }
                 }
-                Text(primary.map { first in
-                    ([first.label] + (lane.snapshot?.quotas.dropFirst().prefix(1).map { "\($0.label) \($0.percent)%" } ?? [])).joined(separator: " · ")
-                } ?? lane.message)
-                    .font(.system(size: 9)).foregroundStyle(Palette.dim).lineLimit(1)
-            }
-            if !compact {
-                Spacer(minLength: 0)
-                ring.frame(width: 34, height: 34)
             }
         }
-        .padding(.horizontal, compact ? 10 : 11)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .glassCard(radius: 16, tint: QuotaRing.tint(for: primary?.fraction))
-        .help(lane.message)
-        .accessibilityElement(children: .combine)
+        .frame(height: QuotaPresentation.height(windows.count))
     }
     /// `nil` is the Codex / API lane; the rest are subscription lanes.
     private func compactItem(_ lane: PlanLane?) -> some View {

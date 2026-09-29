@@ -34,7 +34,7 @@ import IslandCore
         model.demo = true
         precondition(model.displayedSnapshot != nil && model.displayedClineSnapshot != nil)
         model.expanded = true
-        precondition(model.islandHeight < 370)
+        precondition(model.islandHeight < 480)
         print("PASS migration, independent snapshots/status/staleness, Cline logout, Codex clearing, dual demo and panel bounds")
     }
 }

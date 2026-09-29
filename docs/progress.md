@@ -1,6 +1,6 @@
 # 项目进度
 
-最后更新：2026-09-28 · 版本 0.1.0（预览版）
+最后更新：2026-09-29 · 版本 0.1.0（预览版）
 
 ## 这个应用是干什么的
 
@@ -69,10 +69,11 @@
 | 09-27 | Codex API 钱包：检测到充值时，自动把满格基准更新为充值后的余额 |
 | 09-28 | 设置“外观与交互”新增开机自启开关 |
 | 09-28 | Grok 登录过期后自动续期，不再需要手动在终端运行 grok |
+| 09-29 | 界面改版（`DESIGN.md`）：近黑平面、细分隔线与紫蓝强调色；展开面板改为账号列表，每个账号分别显示 5 小时、每周额度条与重置时间，过期显示“待更新”；设置窗口加宽到 800 pt，加入左侧分区导航；面板高度随额度行数变化；新增 `--render-settings` 静态预览 |
 
 ## 进行中
 
-- **界面改版**（尚未提交）：按 `DESIGN.md` 的方向改为近黑平面、细分隔线和少量紫蓝强调色；设置窗口加宽到 800 pt 并加入左侧分区导航，展开面板改为账号列表。涉及 `Application.swift`、`Glass.swift`、`IslandView.swift`、`SettingsView.swift`。
+暂无。
 
 ## 待办
 
@@ -101,6 +102,7 @@
 
 - 构建与运行：`bash scripts/build-app.sh && open "dist/Sea Coffee.app"`
 - 检查：`swift run IslandChecks`（45 项）、`bash scripts/check-account-isolation.sh`、`bash scripts/check-credentials.sh`
+- 静态预览（不读取凭据）：`dist/Sea\ Coffee.app/Contents/MacOS/SeaCoffee --render-preview dist/preview.png` 导出岛的三种状态，`--render-settings /tmp/settings.png` 导出设置的三个分区。改界面前先读 `DESIGN.md`。
 - 目录：`Sources/IslandCore` 放与界面无关、可测试的逻辑（各家协议解析、会话状态机、凭据文件、PI-Desktop 数据库读取）；`Sources/SeaCoffee` 放界面与账号接入。
 - 几个关键决定：
   - **零第三方依赖**：动效、加载、SVG 图标、SQLite 读取均用系统框架实现。
