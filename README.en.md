@@ -8,13 +8,13 @@ An AI status island that lives in your MacBook's notch. See at a glance whether 
 
 Native SwiftUI + AppKit. No Electron, no third-party runtime dependencies.
 
-![Sea Coffee collapsed, expanded, and task-complete states](docs/preview.jpg)
+![Sea Coffee collapsed, expanded, task-complete, and question states](docs/preview.jpg)
 
 > The interface is currently in Simplified Chinese. The screenshot above uses demo data.
 
 ## Features
 
-- **Task status**: follows the local session files of Codex, Claude Code, Grok, Cline, and Pi (including PI-Desktop, which keeps its sessions in SQLite) and shows how many conversations are running. When a task finishes, the notch plays a checkmark animation labelled with the agent and model that finished it (for example `Claude Code · claude-opus-5-5`). Failures and interruptions show a text notice.
+- **Task status**: follows the local session files of Codex, Claude Code, Grok, Cline, and Pi (including PI-Desktop, which keeps its sessions in SQLite) and shows how many conversations are running. When a task finishes, the notch plays a checkmark animation labelled with the agent and model that finished it (for example `Claude Code · claude-opus-5-5`). When an agent asks you a question, the notch pops the same badge with a question mark, labelled with the agent and project that is asking (supported for Claude Code's `AskUserQuestion` and Codex's `request_user_input`). If a Claude Code question stays unanswered, the drop on the left turns violet and pulses, and the expanded panel says it is waiting for you. Failures and interruptions show a text notice.
 - **Quotas and balances**, each refreshed independently:
 
   | Source | What it shows | How it connects |
@@ -40,7 +40,7 @@ bash scripts/build-app.sh
 open "dist/Sea Coffee.app"
 ```
 
-The app is built to `dist/Sea Coffee.app`; drag it to Applications if you like. It lives in the menu bar with no Dock icon. The sparkle icon in the menu bar opens Settings, previews the animation, and quits.
+The app is built to `dist/Sea Coffee.app`; drag it to Applications if you like. It lives in the menu bar with no Dock icon. The sparkle icon in the menu bar opens Settings, previews the animations (including a sample question), and quits.
 
 > The app is not notarized by Apple. If macOS says it cannot verify the developer, right-click the app in Finder and choose Open.
 
@@ -57,7 +57,7 @@ Open **Settings** and connect the sources you use:
 
 To start Sea Coffee when you log in, turn on "开机自启" (Launch at login) under "外观与交互" (Appearance and interaction) in Settings; it takes effect immediately.
 
-Hover over the top of the screen to expand; move away to collapse. "固定展开" (Keep expanded) in the menu bar keeps it open, and "预览动画" (Preview animation) shows the effects without touching real data.
+Hover over the top of the screen to expand; move away to collapse. "固定展开" (Keep expanded) in the menu bar keeps it open, and "预览动画" (Preview animation) and "预览提问提示" (Preview question) show the effects without touching real data.
 
 ## Security and privacy
 

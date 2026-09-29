@@ -7,7 +7,8 @@ enum SeaCoffeeMain {
     @MainActor static func main() {
         let app = NSApplication.shared
         if let index = CommandLine.arguments.firstIndex(of: "--render-motion"), CommandLine.arguments.count > index + 1 {
-            MotionPreviewRenderer.render(to: CommandLine.arguments[index + 1]); return
+            MotionPreviewRenderer.render(to: CommandLine.arguments[index + 1],
+                                         kind: CommandLine.arguments.contains("--question") ? .question : .finished); return
         }
         if let index = CommandLine.arguments.firstIndex(of: "--render-preview"), CommandLine.arguments.count > index + 1 {
             PreviewRenderer.render(to: CommandLine.arguments[index + 1]); return
@@ -110,6 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         add("展开 Sea Coffee", #selector(expand), to: menu)
         add("固定展开", #selector(togglePin(_:)), to: menu)
         add("预览动画", #selector(preview), to: menu)
+        add("预览提问提示", #selector(previewQuestion), to: menu)
         add("刷新额度", #selector(refresh), to: menu)
         menu.addItem(.separator())
         add("设置…", #selector(settings), to: menu, key: ",")
@@ -126,6 +128,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if model.pinned { model.setExpanded(true) }
     }
     @objc private func preview() { model.preview() }
+    @objc private func previewQuestion() { model.previewQuestion() }
     @objc private func refresh() { model.refresh() }
     @objc private func settings() { showSettings() }
     @objc private func quit() { NSApp.terminate(nil) }
@@ -176,9 +179,11 @@ enum PreviewRenderer {
         let done = IslandModel(); done.demo = true; done.demoRunning = false
         done.completion = CompletionPresentation(isDemo: true)
         done.expanded = true; done.reducedMotion = true; done.notchWidth = 120; done.notchHeight = 0
+        let asked = IslandModel(); asked.reducedMotion = true; asked.notchWidth = 120; asked.notchHeight = 0
+        asked.completion = CompletionPresentation(isDemo: true, kind: .question)
         let compact = IslandModel(); compact.demo = true; compact.demoRunning = true
         compact.reducedMotion = true; compact.notchWidth = 120; compact.notchHeight = 0
-        let view = PreviewCanvas(running: running, done: done, compact: compact)
+        let view = PreviewCanvas(running: running, done: done, asked: asked, compact: compact)
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2
         guard let image = renderer.cgImage else { fputs("Preview render failed\n", stderr); exit(1) }
@@ -192,6 +197,7 @@ enum PreviewRenderer {
 struct PreviewCanvas: View {
     let running: IslandModel
     let done: IslandModel
+    let asked: IslandModel
     let compact: IslandModel
     var body: some View {
         ZStack {
@@ -213,11 +219,15 @@ struct PreviewCanvas: View {
                 HStack(spacing: 0) {
                     VStack(spacing: 14) {
                         Text("运行中").font(.system(size: 11)).foregroundStyle(.white.opacity(0.45))
-                        IslandView(model: running).frame(width: 440, height: 440, alignment: .top)
+                        IslandView(model: running).frame(width: 360, height: 440, alignment: .top)
                     }
                     VStack(spacing: 14) {
                         Text("本轮完成").font(.system(size: 11)).foregroundStyle(.white.opacity(0.45))
-                        IslandView(model: done).frame(width: 440, height: 440, alignment: .top)
+                        IslandView(model: done).frame(width: 300, height: 440, alignment: .top)
+                    }
+                    VStack(spacing: 14) {
+                        Text("向你提问").font(.system(size: 11)).foregroundStyle(.white.opacity(0.45))
+                        IslandView(model: asked).frame(width: 300, height: 440, alignment: .top)
                     }
                 }.padding(.top, 24)
                 Spacer(minLength: 0)

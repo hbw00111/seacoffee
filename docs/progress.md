@@ -15,6 +15,7 @@
 | 收起（平时） | 刘海左侧是一滴液态融球：几个任务在跑就有几颗小球绕着转，完成变绿、出错变红、空闲变灰；右侧是各家额度的小圆环和剩余百分比 |
 | 展开（鼠标移上去） | 各家额度的详细数字与重置时间、正在运行的项目、打开对应工具的按钮 |
 | 任务完成时 | 刘海合拢成黑色徽章，画出对勾，下方写明是谁完成的，例如 `Claude Code · claude-opus-5-5`、`Pi · Cline Pass · glm-5.3-flash` |
+| AI 向你提问时 | 同样的徽章，画出紫蓝色问号，下方写明谁在问、哪个项目，例如 `Claude Code · seacoffee`；提问没回答期间，左侧液滴变紫蓝色脉动，展开面板写“在等你回答” |
 
 **支持的来源**：
 
@@ -42,6 +43,7 @@
 | Pi 命令行任务监听 | ✅ 可用 | 真实会话验证 |
 | PI-Desktop 任务监听 | ✅ 可用 | 真实数据库验证（只读） |
 | 完成提示注明工具与模型 | ✅ 可用 | 五个工具的模型字段均已核对 |
+| AI 提问提示（问号弹窗 + 等待回答状态） | ✅ 可用 | 解析已用本机真实的 Claude Code、Codex 会话记录回放验证（Claude 2 次提问全部识别且无误报，Codex 提问识别为非阻塞）；尚未在运行中的应用里由真实提问触发一次实弹；仅支持 Claude Code、Codex |
 | Codex API 额度（Sub2API） | ✅ 可用 | 真实站点验证；充值后自动把满格基准更新为新余额（逻辑已测试，等待一次真实充值验证） |
 | Codex 官方额度 | ⚠️ 已实现 | 尚未用真实官方账号验证 |
 | Cline Pass 额度（API Key） | ✅ 可用 | 真实 Key 验证 |
@@ -69,6 +71,7 @@
 | 09-27 | Codex API 钱包：检测到充值时，自动把满格基准更新为充值后的余额 |
 | 09-28 | 设置“外观与交互”新增开机自启开关 |
 | 09-28 | Grok 登录过期后自动续期，不再需要手动在终端运行 grok |
+| 09-29 | AI 向你提问时弹出问号徽章：识别 Claude Code 的 `AskUserQuestion`（可知是否已回答，未回答期间左侧液滴变紫蓝色脉动、面板写“在等你回答”）和 Codex 的 `request_user_input`（非阻塞，只提示一次）；菜单栏新增“预览提问提示”，静态预览与动效预览加入提问版本；新增 3 项检查 |
 | 09-29 | 界面改版（`DESIGN.md`）：近黑平面、细分隔线与紫蓝强调色；展开面板改为账号列表，每个账号分别显示 5 小时、每周额度条与重置时间，过期显示“待更新”；设置窗口加宽到 800 pt，加入左侧分区导航；面板高度随额度行数变化；新增 `--render-settings` 静态预览 |
 
 ## 进行中
@@ -79,6 +82,8 @@
 
 按优先级大致排序：
 
+- [ ] 提问提示覆盖更多来源：Grok、Cline、Pi 目前没有可识别的提问标记；Codex 的阻塞型 `request_user_input`（非 async）等真实记录出现后核对
+- [ ] 用真实提问在运行中的应用里实弹验证一次（Claude Code 触发 `AskUserQuestion`，确认弹窗、等待状态与回答后恢复）
 - [ ] 菜单栏图标由星芒换成液滴，与新应用图标统一
 - [ ] 本地使用统计：按天、按模型统计 Codex、Claude 的 token 用量，再加费用估算（参考 CodexBar 的本地日志扫描）
 - [ ] Claude 自动续期：在刷新令牌有效时验证后台续期是否安全，再决定是否加入
@@ -96,13 +101,14 @@
 - **未签名与未公证**：没有 Apple Developer ID。别人首次打开需右键“打开”；读取 Claude Code 钥匙串项的回退路径在每次重新编译后仍需授权（主路径走 `security` 工具，不受影响）。
 - **旧钥匙串条目残留**：旧版本的 `cline-oauth` 钥匙串条目因授权绑定旧二进制无法自动导入或删除；不影响使用（Cline 已改用 API Key），可在“钥匙串访问”中手动删除。
 - **Claude 令牌需要手动续期**：Claude CLI 只有在真实请求时才会续期，且续期失败会清空登录，所以不做后台自动续期；长时间不用终端里的 `claude` 时，Sea Coffee 会提示运行一次 `claude`。2026-09-28 的一次后台测试请求导致本机 Claude CLI 被登出，需运行 `claude auth login` 重新登录。
-- **任务监听依赖本地文件格式**：各工具升级改格式后可能识别不到，需要跟进；只识别明确的结束事件，不判断“等待审批”。
+- **任务监听依赖本地文件格式**：各工具升级改格式后可能识别不到，需要跟进；只识别明确的结束事件和明确的提问工具调用，不判断“等待审批”，AI 在正文里以问句结尾也按普通完成处理。
+- **提问的等待状态只在 45 分钟内有效**：Claude 提问后超过 45 分钟没有任何事件，会话按规则转为“未知”，紫蓝色等待标记随之消失；Codex 的提问只在提问那一刻提示一次，没有常驻的等待状态。
 
 ## 开发备忘
 
 - 构建与运行：`bash scripts/build-app.sh && open "dist/Sea Coffee.app"`
-- 检查：`swift run IslandChecks`（45 项）、`bash scripts/check-account-isolation.sh`、`bash scripts/check-credentials.sh`
-- 静态预览（不读取凭据）：`dist/Sea\ Coffee.app/Contents/MacOS/SeaCoffee --render-preview dist/preview.png` 导出岛的三种状态，`--render-settings /tmp/settings.png` 导出设置的三个分区。改界面前先读 `DESIGN.md`。
+- 检查：`swift run IslandChecks`（48 项）、`bash scripts/check-account-isolation.sh`、`bash scripts/check-credentials.sh`
+- 静态预览（不读取凭据）：`dist/Sea\ Coffee.app/Contents/MacOS/SeaCoffee --render-preview dist/preview.png` 导出岛的四种状态（运行中、完成、提问、收起），`--render-settings /tmp/settings.png` 导出设置的三个分区。改界面前先读 `DESIGN.md`。
 - 目录：`Sources/IslandCore` 放与界面无关、可测试的逻辑（各家协议解析、会话状态机、凭据文件、PI-Desktop 数据库读取）；`Sources/SeaCoffee` 放界面与账号接入。
 - 几个关键决定：
   - **零第三方依赖**：动效、加载、SVG 图标、SQLite 读取均用系统框架实现。

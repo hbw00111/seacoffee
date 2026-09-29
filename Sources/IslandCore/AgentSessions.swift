@@ -37,9 +37,16 @@ extension SessionState {
         // Split records of one message repeat the same terminal event.
         if state == next && transitionID == key { return }
         state = next; transitionID = key; updatedAt = time
+        // A new turn or an ended one leaves nobody waiting on an earlier question.
+        question?.answered = true
     }
     private mutating func activity(at time: Date) {
         if state == .running { updatedAt = time }
+    }
+    /// Records a question once; split records of one call repeat the same id.
+    mutating func ask(_ id: String, at time: Date, blocking: Bool) {
+        guard question?.id != id else { return }
+        question = Question(id: id, askedAt: time, blocking: blocking)
     }
 
     /// Claude Code: `~/.claude/projects/<project>/<session>.jsonl`.
@@ -57,6 +64,9 @@ extension SessionState {
             if texts.contains(where: { $0.hasPrefix("[Request interrupted by user") }) {
                 transition(.interrupted, "interrupted:\(time.timeIntervalSince1970)", at: time)
             } else if blocks?.contains(where: { $0["type"] as? String == "tool_result" }) == true {
+                if let asked = question?.id, blocks?.contains(where: { $0["tool_use_id"] as? String == asked }) == true {
+                    question?.answered = true
+                }
                 activity(at: time)
             } else if !texts.isEmpty || blocks?.isEmpty == false {
                 transition(.running, "prompt:\(time.timeIntervalSince1970)", at: time)
@@ -71,6 +81,12 @@ extension SessionState {
             default:
                 // Tool calls and streamed blocks mean work is still in progress.
                 if state == .running { updatedAt = time } else { transition(.running, "assistant:\(id)", at: time) }
+            }
+            // Recorded after the state change above, which would mark an earlier question answered.
+            if let call = (message?["content"] as? [[String: Any]])?.first(where: {
+                $0["type"] as? String == "tool_use" && $0["name"] as? String == "AskUserQuestion" }),
+               let callID = call["id"] as? String {
+                ask(callID, at: time, blocking: true)
             }
         default: break
         }

@@ -41,6 +41,7 @@ struct CompletionPresentation: Identifiable {
     let id = UUID()
     let startedAt = Date()
     let isDemo: Bool
+    var kind: NoticeKind = .finished
     var initialWidth: CGFloat = 291
     var initialHeight: CGFloat = 32
     var wasExpanded = false
@@ -88,7 +89,7 @@ final class IslandModel: ObservableObject {
     private var demoTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
     private var generation = UUID()
-    private var noticeQueue: [SessionState] = []
+    private var noticeQueue: [(session: SessionState, kind: NoticeKind)] = []
     private var accountObservers: [AnyCancellable] = []
 
     var site: String { UserDefaults.standard.string(forKey: "site") ?? "" }
@@ -120,6 +121,8 @@ final class IslandModel: ObservableObject {
     var islandAnimation: Animation { expanded ? openingAnimation : closingAnimation }
     var reduceMotion: Bool { reducedMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
     var running: [SessionState] { sessions.filter { $0.state == .running } }
+    /// The most recently active conversation stopped on a question for the user.
+    var asking: SessionState? { demo ? nil : sessions.first { $0.state == .running && $0.awaitingAnswer } }
     var uncertain: Bool { sessions.contains { $0.state == .unknown && !$0.transitionID.isEmpty } }
     var activeConversationCount: Int { demo ? (demoRunning ? 3 : 0) : Set(running.map(\.id)).count }
     var isRunning: Bool { activeConversationCount > 0 }
@@ -133,6 +136,7 @@ final class IslandModel: ObservableObject {
             }
         }
         if demo && !demoRunning { return .completed }
+        if asking != nil { return .asking }
         if isRunning { return .running }
         switch sessions.max(by: { $0.updatedAt < $1.updatedAt })?.state {
         case .completed: return .completed
@@ -184,14 +188,24 @@ final class IslandModel: ObservableObject {
     var isStale: Bool { !demo && snapshot.map { Date().timeIntervalSince($0.fetchedAt) > 180 } == true }
     /// "Claude Code · claude-opus-5-5" under the completion check.
     var completionCaption: CompletionCaption? {
-        if demo { return CompletionCaption(style: .codex, text: "Codex · gpt-6-sol") }
-        guard let notice, notice.state == .completed else { return nil }
+        let question = completion?.kind == .question
+        if demo || completion?.isDemo == true {
+            return question ? CompletionCaption(style: .claude, text: "Claude Code · seacoffee")
+                            : CompletionCaption(style: .codex, text: "Codex · gpt-6-sol")
+        }
+        guard let notice else { return nil }
+        // Who is asking, and in which project: several conversations may be open at once.
+        if question {
+            let text = [notice.agent.name, notice.project == notice.agent.name ? nil : notice.project].compactMap { $0 }.joined(separator: " · ")
+            return CompletionCaption(style: ServiceStyle(agent: notice.agent), text: text)
+        }
+        guard notice.state == .completed else { return nil }
         let text = [notice.agent.name, notice.channelName, notice.modelName].compactMap { $0 }.joined(separator: " · ")
         return CompletionCaption(style: ServiceStyle(agent: notice.agent), text: text)
     }
     /// The agent the status row talks about: the finished task, else a running one, else the latest.
     var focusAgent: Agent {
-        notice?.agent ?? running.first?.agent ?? sessions.max(by: { $0.updatedAt < $1.updatedAt })?.agent ?? .codex
+        notice?.agent ?? asking?.agent ?? running.first?.agent ?? sessions.max(by: { $0.updatedAt < $1.updatedAt })?.agent ?? .codex
     }
     private var runningAgentNames: String {
         let agents = Agent.allCases.filter { agent in running.contains { $0.agent == agent } }
@@ -200,12 +214,14 @@ final class IslandModel: ObservableObject {
     var statusTitle: String {
         if demo { return demoRunning ? "Codex 正在运行" : "Codex 本轮已完成" }
         if let notice {
+            if completion?.kind == .question { return "\(notice.agent.name) 向你提问" }
             switch notice.state {
             case .completed: return "\(notice.agent.name) 本轮已完成"
             case .failed: return "\(notice.agent.name) 遇到了问题"
             default: return "\(notice.agent.name) 任务已中断"
             }
         }
+        if let asking { return "\(asking.agent.name) 在等你回答" }
         if isRunning { return "\(runningAgentNames) 正在运行" }
         return uncertain ? "任务状态待确认" : "暂无运行中的任务"
     }
@@ -215,6 +231,7 @@ final class IslandModel: ObservableObject {
             let origin = [notice.project, notice.channelName, notice.modelName].compactMap { $0 }.joined(separator: " · ")
             return canOpen(notice.agent) ? "\(origin) · 点击右侧按钮打开 \(notice.agent.name)" : origin
         }
+        if let asking { return "\(asking.project) · 回答后会继续运行" }
         if let first = running.first { return "\(first.project) · \(activeConversationCount) 个对话运行中" }
         if uncertain { return "较长时间未收到事件 · 请查看对应工具" }
         return monitorMessage ?? "本地监听已开启 · 等待下一次任务"
@@ -292,6 +309,7 @@ final class IslandModel: ObservableObject {
             Task { @MainActor in
                 guard let self, self.generation == token else { return }
                 self.sessions = update.sessions; self.monitorMessage = update.message
+                for asked in update.asked { self.showNotice(asked, kind: .question) }
                 for finished in update.finished { self.showNotice(finished) }
                 if !update.finished.isEmpty { self.refresh() }
             }
@@ -399,27 +417,31 @@ final class IslandModel: ObservableObject {
         }
     }
     func togglePin() { pinned.toggle(); if !pinned { scheduleCollapse() } }
-    func showNotice(_ session: SessionState) {
+    func showNotice(_ session: SessionState, kind: NoticeKind = .finished) {
         if demo { stopPreview() }
         if notice != nil {
-            if !noticeQueue.contains(where: { $0.id == session.id && $0.transitionID == session.transitionID }) {
-                noticeQueue.append(session)
+            // A question and a finish of one conversation are different notices.
+            func key(_ session: SessionState) -> String { kind == .question ? session.question?.id ?? "" : session.transitionID }
+            if !noticeQueue.contains(where: { $0.session.id == session.id && $0.kind == kind && key($0.session) == key(session) }) {
+                noticeQueue.append((session, kind))
             }
             return
         }
-        presentNotice(session)
+        presentNotice(session, kind: kind)
     }
-    private func presentNotice(_ session: SessionState, isDemo: Bool = false) {
+    private func presentNotice(_ session: SessionState, kind: NoticeKind = .finished, isDemo: Bool = false) {
         noticeTask?.cancel()
         notice = session
-        if session.state == .completed {
-            let presentation = CompletionPresentation(isDemo: isDemo,
+        // A finish and a question share the badge; failures and interruptions are text in the open island.
+        let badge = kind == .question || session.state == .completed
+        if badge {
+            let presentation = CompletionPresentation(isDemo: isDemo, kind: kind,
                 initialWidth: islandWidth, initialHeight: islandHeight, wasExpanded: expanded)
             // The frame clock owns the whole morph, including returning to the island.
             completion = presentation
             expanded = false
         } else { setExpanded(true) }
-        let duration = session.state == .completed ? (reduceMotion ? CompletionMotion.reducedDuration : CompletionMotion.duration) : 5
+        let duration = badge ? (reduceMotion ? CompletionMotion.reducedDuration : CompletionMotion.duration) : 5
         noticeTask = Task {
             try? await Task.sleep(for: .seconds(duration))
             guard !Task.isCancelled else { return }
@@ -433,7 +455,7 @@ final class IslandModel: ObservableObject {
             if wasDemo { demo = false }
             expanded = pinned || (hovered && hoverEnabled)
         }
-        if !noticeQueue.isEmpty { presentNotice(noticeQueue.removeFirst()) }
+        if !noticeQueue.isEmpty { let next = noticeQueue.removeFirst(); presentNotice(next.session, kind: next.kind) }
         else { scheduleCollapse() }
     }
     private func stopPreview() {
@@ -457,6 +479,13 @@ final class IslandModel: ObservableObject {
             session.project = "seacoffee"; session.state = .completed
             presentNotice(session, isDemo: true)
         }
+    }
+    /// A sample question popup, for seeing the design without waiting for an agent to ask.
+    func previewQuestion() {
+        guard notice == nil, !demo else { return }
+        var session = SessionState(id: "preview-question", agent: .claude)
+        session.project = "seacoffee"
+        presentNotice(session, kind: .question, isDemo: true)
     }
     private func appURL(for agent: Agent) -> URL? {
         let candidates: [String]

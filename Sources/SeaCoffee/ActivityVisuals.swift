@@ -2,11 +2,13 @@ import SwiftUI
 import IslandCore
 
 enum ActivityAppearance: Equatable {
-    case idle, running, completed, failed, interrupted
+    case idle, running, asking, completed, failed, interrupted
     var tint: Color {
         switch self {
         case .idle: return Color.white.opacity(0.48)
         case .running: return Color(red: 1, green: 0.59, blue: 0.16)
+        // Needs the user but nothing went wrong, so the accent rather than red.
+        case .asking: return Palette.accent
         case .completed: return Color(red: 48 / 255, green: 209 / 255, blue: 88 / 255)
         case .failed, .interrupted: return Color(red: 1, green: 0.27, blue: 0.25)
         }
@@ -15,6 +17,7 @@ enum ActivityAppearance: Equatable {
         switch self {
         case .idle: return "空闲"
         case .running: return "正在运行"
+        case .asking: return "等你回答"
         case .completed: return "本轮完成"
         case .failed: return "运行失败"
         case .interrupted: return "已中断"
@@ -46,7 +49,7 @@ struct ActivityCore: View {
             .shadow(color: state.tint.opacity(state == .idle ? 0 : 0.55), radius: 3.5)
         }
         .onChange(of: count) { old, _ in previousCount = old; countChangedAt = Date() }
-        .accessibilityLabel(state == .running ? "\(state.label)，\(count) 个对话" : state.label)
+        .accessibilityLabel(state == .running || state == .asking ? "\(state.label)，\(count) 个对话" : state.label)
     }
 
     private func draw(_ context: inout GraphicsContext, size: CGSize, time: Double, sinceCountChange: Double) {
@@ -74,6 +77,8 @@ struct ActivityCore: View {
     private func coreRadius(time: Double) -> CGFloat {
         switch state {
         case .running: return 4.0
+        // Breathes faster than idle: something is waiting.
+        case .asking: return 4.2 + CGFloat((sin(time * 2 * .pi / 1.6) + 1) / 2) * 0.9
         case .completed:
             // A soft bounce once the orbiting drops have been absorbed.
             let beat = max(0, sin(time * 2 * .pi / 1.8))
@@ -86,7 +91,7 @@ struct ActivityCore: View {
     private struct Blob { let angle: Double; let distance: CGFloat; let radius: CGFloat }
 
     private func orbiting(time: Double, sinceCountChange: Double) -> [Blob] {
-        guard state == .running else { return [] }
+        guard state == .running || state == .asking else { return [] }
         let shown = min(max(count, 1), Self.maxBlobs)
         // More work turns the drop slightly faster.
         let period = 2.4 - Double(shown - 1) * 0.2
@@ -111,6 +116,32 @@ struct DrawnCheckmark: Shape {
         path.move(to: CGPoint(x: rect.minX + rect.width * 0.12, y: rect.minY + rect.height * 0.51))
         path.addLine(to: CGPoint(x: rect.minX + rect.width * 0.40, y: rect.minY + rect.height * 0.77))
         path.addLine(to: CGPoint(x: rect.minX + rect.width * 0.88, y: rect.minY + rect.height * 0.23))
+        return path
+    }
+}
+
+/// A question mark: hook, stem and a dot, drawn in that order by `trim`.
+struct DrawnQuestionMark: Shape {
+    func path(in rect: CGRect) -> Path {
+        func point(_ x: Double, _ y: Double) -> CGPoint { CGPoint(x: rect.minX + rect.width * x, y: rect.minY + rect.height * y) }
+        var path = Path()
+        // The hook is a 240° arc over the top, sampled like `FlippingOrbit`.
+        let steps = 48
+        for step in 0...steps {
+            let angle = (165 + 240 * Double(step) / Double(steps)) * .pi / 180
+            let p = point(0.5 + 0.235 * cos(angle), 0.33 + 0.235 * sin(angle))
+            if step == 0 { path.move(to: p) } else { path.addLine(to: p) }
+        }
+        path.addQuadCurve(to: point(0.5, 0.665), control: point(0.5, 0.6))
+        return path
+    }
+}
+
+struct DrawnQuestionDot: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY + rect.height * 0.86))
+        path.addLine(to: CGPoint(x: rect.midX, y: rect.minY + rect.height * 0.862))
         return path
     }
 }
@@ -141,20 +172,39 @@ struct FlippingOrbit: Shape {
     }
 }
 
+/// What the popup announces: a finished task (check) or a question for the user (question mark).
+enum NoticeKind: Equatable {
+    case finished, question
+    var tint: Color { self == .question ? ActivityAppearance.asking.tint : ActivityAppearance.completed.tint }
+}
+
 struct CompletionGlyph: View {
     let motion: CompletionMotion
+    var kind: NoticeKind = .finished
     var body: some View {
+        let stroke = StrokeStyle(lineWidth: 4.6, lineCap: .round, lineJoin: .round)
         ZStack {
             // The main orbit settles into the final circle instead of fading away.
             FlippingOrbit(degrees: motion.rotation, axisX: 0.35, axisY: 1)
-                .stroke(ActivityAppearance.completed.tint, lineWidth: 3)
+                .stroke(kind.tint, lineWidth: 3)
             FlippingOrbit(degrees: -motion.rotation, axisX: 1, axisY: 0.35)
-                .stroke(ActivityAppearance.completed.tint.opacity(0.65), lineWidth: 2.8)
+                .stroke(kind.tint.opacity(0.65), lineWidth: 2.8)
                 .opacity(motion.spinningOpacity)
-            DrawnCheckmark().trim(from: 0, to: motion.checkProgress)
-                .stroke(ActivityAppearance.completed.tint, style: StrokeStyle(lineWidth: 4.6, lineCap: .round, lineJoin: .round))
-                .padding(6)
-                .scaleEffect(x: cos(65 * (1 - motion.checkProgress) * .pi / 180), y: 1)
+            Group {
+                switch kind {
+                case .finished:
+                    DrawnCheckmark().trim(from: 0, to: motion.checkProgress).stroke(kind.tint, style: stroke)
+                        .padding(6)
+                case .question:
+                    ZStack {
+                        DrawnQuestionMark().trim(from: 0, to: motion.checkProgress).stroke(kind.tint, style: stroke)
+                        // The dot lands once the hook and stem are done.
+                        DrawnQuestionDot().stroke(kind.tint, style: stroke)
+                            .opacity(min(1, max(0, (motion.checkProgress - 0.85) / 0.15)))
+                    }.padding(6)
+                }
+            }
+            .scaleEffect(x: cos(65 * (1 - motion.checkProgress) * .pi / 180), y: 1)
         }
         .scaleEffect(motion.scale)
         .opacity(motion.glyphOpacity)
@@ -163,11 +213,12 @@ struct CompletionGlyph: View {
 
 struct CompletionTileFrame: View {
     let motion: CompletionMotion
+    var kind: NoticeKind = .finished
     var isDemo: Bool = false
     var body: some View {
-        CompletionGlyph(motion: motion).frame(width: 38, height: 38)
+        CompletionGlyph(motion: motion, kind: kind).frame(width: 38, height: 38)
             .frame(width: 72, height: 72)
-            .accessibilityLabel(isDemo ? "演示：本轮已完成" : "本轮已完成")
+            .accessibilityLabel((isDemo ? "演示：" : "") + (kind == .question ? "向你提问" : "本轮已完成"))
     }
 }
 
@@ -202,6 +253,7 @@ struct CompletionSurface<Content: View>: View {
     let cameraHeight: CGFloat
     let badgeWidth: CGFloat
     let hasNotch: Bool
+    var kind: NoticeKind = .finished
     var caption: CompletionCaption? = nil
     @ViewBuilder var content: () -> Content
 
@@ -231,7 +283,7 @@ struct CompletionSurface<Content: View>: View {
         }
         .overlay(alignment: .top) {
             VStack(spacing: 0) {
-                CompletionTileFrame(motion: motion)
+                CompletionTileFrame(motion: motion, kind: kind)
                 if let caption { CompletionCaptionView(caption: caption).opacity(motion.captionOpacity) }
             }
             .padding(.top, cameraHeight * amount)
@@ -240,6 +292,6 @@ struct CompletionSurface<Content: View>: View {
         .overlay(shape.strokeBorder(.white.opacity(0.10 * amount), lineWidth: 0.6))
         .frame(width: 520, height: 370, alignment: .top)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(caption.map { "\($0.text) 本轮已完成" } ?? "本轮已完成")
+        .accessibilityLabel((caption.map { "\($0.text) " } ?? "") + (kind == .question ? "向你提问" : "本轮已完成"))
     }
 }

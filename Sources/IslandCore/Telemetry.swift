@@ -132,6 +132,15 @@ import CoreFoundation
 
 public enum RunState: String, Sendable { case running, completed, interrupted, failed, unknown }
 
+/// A question the agent put to the user through its ask tool. Only the call id and time are kept.
+public struct Question: Equatable, Sendable {
+    public let id: String
+    public let askedAt: Date
+    /// The agent stops until the user answers (Claude Code). Codex asks and keeps working.
+    public let blocking: Bool
+    public var answered = false
+}
+
 public struct SessionState: Equatable, Sendable, Identifiable {
     public var id: String
     public var agent: Agent = .codex
@@ -141,6 +150,10 @@ public struct SessionState: Equatable, Sendable, Identifiable {
     public var state: RunState = .unknown
     public var updatedAt: Date = .distantPast
     public var transitionID: String = ""
+    /// The latest question; replaced by the next one.
+    public internal(set) var question: Question?
+    /// Stopped on a question that has not been answered yet.
+    public var awaitingAnswer: Bool { question.map { $0.blocking && !$0.answered } ?? false }
     public init(id: String, agent: Agent = .codex) { self.id = id; self.agent = agent; project = agent.name }
 
     // Only event metadata is retained; prompts and answers are never stored by this app.
@@ -153,6 +166,13 @@ public struct SessionState: Equatable, Sendable, Identifiable {
         }
         if object["type"] as? String == "turn_context" {
             if let name = payload["model"] as? String, !name.isEmpty { model = name }
+            return
+        }
+        // `request_user_input_async` returns at once and the turn goes on, so this is a one-off notice.
+        if object["type"] as? String == "response_item", payload["type"] as? String == "function_call",
+           let name = payload["name"] as? String, name.hasPrefix("request_user_input"),
+           let time = UsageDecoder.date(object["timestamp"]), time >= updatedAt {
+            ask(payload["call_id"] as? String ?? "\(time.timeIntervalSince1970)", at: time, blocking: false)
             return
         }
         guard object["type"] as? String == "event_msg", let kind = payload["type"] as? String,

@@ -3,6 +3,8 @@ import Foundation
 public struct MonitorSnapshot: Sendable {
     public var sessions: [SessionState]
     public var finished: [SessionState]
+    /// Sessions that put a new question to the user since the last scan.
+    public var asked: [SessionState] = []
     public var message: String?
 }
 
@@ -131,6 +133,7 @@ public final class SessionMonitor: @unchecked Sendable {
         }
         let now = Date()
         var finished: [SessionState] = []
+        var asked: [SessionState] = []
         var readFailure = false
         var allowed = Set<URL>()
         for source in present {
@@ -172,6 +175,7 @@ public final class SessionMonitor: @unchecked Sendable {
                 do {
                     var cursor = cursors[url] ?? Cursor(state: source.newState(for: url))
                     let oldTransition = cursor.state.transitionID
+                    let oldQuestion = cursor.state.question?.id
                     if source.isSnapshot {
                         if modified != cursor.modified {
                             let data = try Data(contentsOf: url)
@@ -186,6 +190,12 @@ public final class SessionMonitor: @unchecked Sendable {
                        [.completed, .failed, .interrupted].contains(cursor.state.state), cursor.state.updatedAt >= launchedAt {
                         finished.append(cursor.state)
                     }
+                    // Only a fresh question that still needs the user: not one answered within this scan,
+                    // and not an old unanswered one found when a long-idle file is read again.
+                    if !firstScan, let question = cursor.state.question, question.id != oldQuestion, !question.answered,
+                       question.askedAt >= launchedAt, now.timeIntervalSince(question.askedAt) < 300 {
+                        asked.append(cursor.state)
+                    }
                     cursors[url] = cursor
                 } catch { readFailure = true }
             }
@@ -197,6 +207,6 @@ public final class SessionMonitor: @unchecked Sendable {
             states[index].state = .unknown // Silence is never interpreted as successful completion.
         }
         states.sort { $0.updatedAt > $1.updatedAt }
-        callback(MonitorSnapshot(sessions: states, finished: finished, message: readFailure ? "部分会话文件暂不可读" : nil))
+        callback(MonitorSnapshot(sessions: states, finished: finished, asked: asked, message: readFailure ? "部分会话文件暂不可读" : nil))
     }
 }

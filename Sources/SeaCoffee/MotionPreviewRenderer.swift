@@ -6,14 +6,14 @@ import IslandCore
 
 @MainActor
 enum MotionPreviewRenderer {
-    static func render(to path: String) {
+    static func render(to path: String, kind: NoticeKind = .finished) {
         let count = 135
         guard let destination = CGImageDestinationCreateWithURL(URL(fileURLWithPath: path) as CFURL, UTType.gif.identifier as CFString, count, nil) else { exit(1) }
         CGImageDestinationSetProperties(destination, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0]] as CFDictionary)
         for index in 0..<count {
             autoreleasepool {
                 let elapsed = Double(index) / 30
-                let renderer = ImageRenderer(content: MotionPreviewFrame(elapsed: elapsed))
+                let renderer = ImageRenderer(content: MotionPreviewFrame(elapsed: elapsed, kind: kind))
                 renderer.scale = 2
                 guard let image = renderer.cgImage else { return }
                 CGImageDestinationAddImage(destination, image, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: 1.0 / 30]] as CFDictionary)
@@ -30,6 +30,7 @@ enum MotionPreviewRenderer {
 
 private struct MotionPreviewFrame: View {
     let elapsed: Double
+    var kind: NoticeKind = .finished
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -39,8 +40,9 @@ private struct MotionPreviewFrame: View {
             }.padding(.horizontal, 26).frame(height: 50)
             CompletionSurface(motion: CompletionMotion(elapsed: max(0, elapsed - 0.55)),
                 initialWidth: 291, initialHeight: 32, targetWidth: 291, targetHeight: 32,
-                cameraHeight: 32, badgeWidth: 179, hasNotch: true,
-                caption: CompletionCaption(style: .codex, text: "Codex · gpt-6-sol")) {
+                cameraHeight: 32, badgeWidth: 179, hasNotch: true, kind: kind,
+                caption: kind == .question ? CompletionCaption(style: .claude, text: "Claude Code · seacoffee")
+                                           : CompletionCaption(style: .codex, text: "Codex · gpt-6-sol")) {
                     HStack(spacing: 0) {
                         HStack(spacing: 3) {
                             ActivityCore(state: .running, reducedMotion: false, timeOverride: elapsed, count: elapsed < 0.55 ? 3 : 2)
@@ -61,6 +63,7 @@ private struct MotionPreviewFrame: View {
                 }
             HStack(spacing: 32) {
                 sample(.running, label: "运行 · 3")
+                sample(.asking, label: "等你回答")
                 sample(.failed, label: "报错")
                 sample(.completed, label: "完成")
             }.frame(height: 50)

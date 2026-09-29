@@ -38,6 +38,151 @@ final class AgentSessionTests {
         expectEqual(s.state, .interrupted)
     }
 
+    private func askUserQuestion(_ id: String, at time: String, extra: [String: Any] = [:]) -> Data {
+        claude("assistant", at: time, ["id": "m-\(id)", "model": "claude-opus-5-5", "stop_reason": "tool_use",
+                                        "content": [["type": "tool_use", "id": id, "name": "AskUserQuestion", "input": ["questions": []]]]], extra: extra)
+    }
+    private func toolResult(_ id: String, at time: String) -> Data {
+        claude("user", at: time, ["content": [["type": "tool_result", "tool_use_id": id, "content": "ok"]]])
+    }
+
+    func claudeQuestions() {
+        var s = SessionState(id: "c", agent: .claude)
+        s.consumeClaude(claude("user", at: "2026-09-29T03:00:00Z", ["content": "plan it"]))
+        expectNil(s.question)
+        expectEqual(s.awaitingAnswer, false)
+        s.consumeClaude(askUserQuestion("toolu_1", at: "2026-09-29T03:00:05Z"))
+        expectEqual(s.question?.id, "toolu_1")
+        expectEqual(s.question?.blocking, true)
+        expectEqual(s.awaitingAnswer, true, "the tool call is unanswered until its result arrives")
+        expectEqual(s.state, .running, "waiting on the user is still a running turn")
+        // Streamed blocks of the same call repeat the id; other tools never count as questions.
+        s.consumeClaude(askUserQuestion("toolu_1", at: "2026-09-29T03:00:05Z"))
+        s.consumeClaude(claude("assistant", at: "2026-09-29T03:00:06Z", ["id": "m2", "stop_reason": "tool_use",
+            "content": [["type": "tool_use", "id": "toolu_bash", "name": "Bash"]]]))
+        expectEqual(s.question?.id, "toolu_1")
+        s.consumeClaude(toolResult("toolu_other", at: "2026-09-29T03:00:07Z"))
+        expectEqual(s.awaitingAnswer, true, "a result for another call does not answer it")
+        s.consumeClaude(toolResult("toolu_1", at: "2026-09-29T03:00:20Z"))
+        expectEqual(s.awaitingAnswer, false)
+        expectEqual(s.state, .running)
+        s.consumeClaude(askUserQuestion("toolu_1", at: "2026-09-29T03:00:20Z"))
+        expectEqual(s.awaitingAnswer, false, "an answered call is not asked again")
+
+        s.consumeClaude(askUserQuestion("toolu_2", at: "2026-09-29T03:00:30Z"))
+        expectEqual(s.awaitingAnswer, true)
+        s.consumeClaude(claude("user", at: "2026-09-29T03:00:35Z", ["content": [["type": "text", "text": "[Request interrupted by user for tool use]"]]]))
+        expectEqual(s.state, .interrupted)
+        expectEqual(s.awaitingAnswer, false, "interrupting the question ends the wait")
+
+        s.consumeClaude(claude("user", at: "2026-09-29T03:01:00Z", ["content": [["type": "text", "text": "again"]]]))
+        s.consumeClaude(askUserQuestion("toolu_3", at: "2026-09-29T03:01:05Z"))
+        expectEqual(s.awaitingAnswer, true)
+        s.consumeClaude(claude("assistant", at: "2026-09-29T03:01:30Z", ["id": "m9", "stop_reason": "end_turn"]))
+        expectEqual(s.state, .completed)
+        expectEqual(s.awaitingAnswer, false, "a finished turn is not waiting")
+
+        // A question raised by a subagent is not the user's to answer here.
+        var side = SessionState(id: "side", agent: .claude)
+        side.consumeClaude(claude("user", at: "2026-09-29T04:00:00Z", ["content": "go"]))
+        side.consumeClaude(askUserQuestion("toolu_side", at: "2026-09-29T04:00:05Z", extra: ["isSidechain": true]))
+        expectNil(side.question)
+        // A history that starts mid-turn (tail of a long file) still notices the question.
+        var tail = SessionState(id: "tail", agent: .claude)
+        tail.consumeClaude(askUserQuestion("toolu_tail", at: "2026-09-29T05:00:05Z"))
+        expectEqual(tail.state, .running)
+        expectEqual(tail.awaitingAnswer, true)
+    }
+
+    func codexQuestions() {
+        func call(_ name: String, id: String, at time: String) -> Data {
+            json(["type": "response_item", "timestamp": time,
+                  "payload": ["type": "function_call", "name": name, "call_id": id, "arguments": "{\"questions\":[]}"]])
+        }
+        var s = SessionState(id: "x")
+        s.consume(json(["type": "event_msg", "timestamp": "2026-09-29T03:00:00Z", "payload": ["type": "task_started", "turn_id": "t1"]]))
+        s.consume(call("exec", id: "call_exec", at: "2026-09-29T03:00:02Z"))
+        expectNil(s.question)
+        s.consume(call("request_user_input_async", id: "call_q1", at: "2026-09-29T03:00:05Z"))
+        expectEqual(s.question?.id, "call_q1")
+        expectEqual(s.question?.blocking, false)
+        expectEqual(s.awaitingAnswer, false, "Codex keeps working after asking")
+        expectEqual(s.state, .running)
+        s.consume(call("request_user_input_async", id: "call_q1", at: "2026-09-29T03:00:05Z"))
+        s.consume(call("request_user_input", id: "call_q2", at: "2026-09-29T03:00:09Z"))
+        expectEqual(s.question?.id, "call_q2")
+        s.consume(call("request_user_input_async", id: "call_old", at: "2026-09-29T02:00:00Z"))
+        expectEqual(s.question?.id, "call_q2", "out-of-order lines are ignored")
+    }
+
+    func monitorReportsQuestions() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? fm.removeItem(at: root) }
+        let project = root.appendingPathComponent("claude/-Users-example-web")
+        try fm.createDirectory(at: project, withIntermediateDirectories: true)
+        let file = project.appendingPathComponent("s1.jsonl")
+        func stamp(_ offset: TimeInterval) -> String { ISO8601DateFormatter().string(from: Date().addingTimeInterval(offset)) }
+        func write(_ lines: [Data], append: Bool = true) throws {
+            let data = lines.reduce(Data()) { $0 + $1 + Data([10]) }
+            if append, fm.fileExists(atPath: file.path) {
+                let handle = try FileHandle(forWritingTo: file); defer { try? handle.close() }
+                try handle.seekToEnd(); try handle.write(contentsOf: data)
+            } else { try data.write(to: file) }
+        }
+        // History: a question that was never answered before Sea Coffee started.
+        try write([claude("user", at: stamp(-3600), ["content": "old"]), askUserQuestion("toolu_old", at: stamp(-3590))], append: false)
+        var received: MonitorSnapshot?
+        let monitor = SessionMonitor(sources: [SessionSource(agent: .claude, path: root.appendingPathComponent("claude").path)]) { received = $0 }
+        monitor.poll()
+        expectEqual(received?.asked.count, 0, "questions from before launch never interrupt")
+
+        try write([claude("user", at: stamp(1), ["content": "new"]), askUserQuestion("toolu_a", at: stamp(2))])
+        monitor.poll()
+        expectEqual(received?.asked.map(\.agent), [.claude])
+        expectEqual(received?.asked.first?.question?.id, "toolu_a")
+        expectEqual(received?.sessions.first?.awaitingAnswer, true)
+        expectEqual(received?.finished.count, 0)
+        monitor.poll()
+        expectEqual(received?.asked.count, 0, "polling must not repeat the notice")
+        expectEqual(received?.sessions.first?.awaitingAnswer, true)
+
+        // Asked and answered between two scans: nothing left to tell the user.
+        try write([toolResult("toolu_a", at: stamp(3)), askUserQuestion("toolu_b", at: stamp(4)), toolResult("toolu_b", at: stamp(5))])
+        monitor.poll()
+        expectEqual(received?.asked.count, 0)
+        expectEqual(received?.sessions.first?.awaitingAnswer, false)
+
+        try write([askUserQuestion("toolu_c", at: stamp(6))])
+        monitor.poll()
+        expectEqual(received?.asked.first?.question?.id, "toolu_c")
+        try write([claude("assistant", at: stamp(7), ["id": "end", "stop_reason": "end_turn"])])
+        monitor.poll()
+        expectEqual(received?.finished.count, 1)
+        expectEqual(received?.sessions.first?.awaitingAnswer, false)
+
+        // Codex asks without stopping.
+        let codexRoot = root.appendingPathComponent("codex")
+        try fm.createDirectory(at: codexRoot, withIntermediateDirectories: true)
+        let rollout = codexRoot.appendingPathComponent("rollout-q.jsonl")
+        func codex(_ payload: [String: Any], type: String = "event_msg", at offset: TimeInterval) -> Data {
+            json(["type": type, "timestamp": stamp(offset), "payload": payload]) + Data([10])
+        }
+        try codex(["type": "task_started", "turn_id": "t"], at: -30).write(to: rollout)
+        var codexReceived: MonitorSnapshot?
+        let codexMonitor = SessionMonitor(path: codexRoot.path) { codexReceived = $0 }
+        codexMonitor.poll()
+        let handle = try FileHandle(forWritingTo: rollout); defer { try? handle.close() }
+        try handle.seekToEnd()
+        try handle.write(contentsOf: codex(["type": "function_call", "name": "request_user_input_async", "call_id": "q"], type: "response_item", at: 2))
+        codexMonitor.poll()
+        expectEqual(codexReceived?.asked.map(\.agent), [.codex])
+        expectEqual(codexReceived?.sessions.first?.awaitingAnswer, false)
+        expectEqual(codexReceived?.sessions.first?.state, .running)
+        codexMonitor.poll()
+        expectEqual(codexReceived?.asked.count, 0)
+    }
+
     func grokTurns() {
         var s = SessionState(id: "g", agent: .grok)
         s.consumeGrok(json(["type": "turn_started", "ts": "2026-09-25T12:00:00.000Z", "turn_number": 0, "model_id": "grok-4.6"]))

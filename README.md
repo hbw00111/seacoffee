@@ -8,11 +8,11 @@
 
 原生 SwiftUI + AppKit，无 Electron，无第三方运行时依赖。
 
-![Sea Coffee 收起、展开与完成状态](docs/preview.jpg)
+![Sea Coffee 收起、展开、完成与提问状态](docs/preview.jpg)
 
 ## 功能
 
-- **任务状态**：本地监听 Codex、Claude Code、Grok、Cline、Pi（含 PI-Desktop）的会话记录，显示运行中的对话数；任务完成时在刘海处播放对勾动效，并注明是哪个工具、哪个模型完成的（如 `Claude Code · claude-opus-5-5`）；失败或中断时文字提醒。
+- **任务状态**：本地监听 Codex、Claude Code、Grok、Cline、Pi（含 PI-Desktop）的会话记录，显示运行中的对话数；任务完成时在刘海处播放对勾动效，并注明是哪个工具、哪个模型完成的（如 `Claude Code · claude-opus-5-5`）；AI 向你提问时刘海处同样弹出徽章，画出问号并注明是哪个工具、哪个项目在问（目前支持 Claude Code 的 `AskUserQuestion` 和 Codex 的 `request_user_input`；Claude Code 提问后一直没回答，左侧液滴会变成紫蓝色脉动，展开面板写明在等你回答）；失败或中断时文字提醒。
 - **额度与余额**，每家独立刷新、互不影响：
 
   | 来源 | 显示内容 | 接入方式 |
@@ -38,7 +38,7 @@ bash scripts/build-app.sh
 open "dist/Sea Coffee.app"
 ```
 
-构建产物位于 `dist/Sea Coffee.app`，可拖到“应用程序”文件夹。应用常驻菜单栏、不显示 Dock 图标；菜单栏的星芒图标提供设置、预览动画和退出。
+构建产物位于 `dist/Sea Coffee.app`，可拖到“应用程序”文件夹。应用常驻菜单栏、不显示 Dock 图标；菜单栏的星芒图标提供设置、预览动画、预览提问提示和退出。
 
 > 本项目未经 Apple 公证。首次打开若提示无法验证开发者，请在 Finder 中右键应用选择“打开”。
 
@@ -55,7 +55,7 @@ open "dist/Sea Coffee.app"
 
 需要开机自动运行时，在设置“外观与交互”中打开“开机自启”（立即生效）。
 
-悬停顶部即展开，移开即收起；菜单栏“固定展开”可保持展开，“预览动画”可查看效果而不影响真实数据。
+悬停顶部即展开，移开即收起；菜单栏“固定展开”可保持展开，“预览动画”“预览提问提示”可查看效果而不影响真实数据。
 
 ## 安全与隐私
 
