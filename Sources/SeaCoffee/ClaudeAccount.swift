@@ -19,6 +19,8 @@ final class ClaudeAccount: ObservableObject {
     private var task: Task<Void, Never>?
     // The usage endpoint rate-limits aggressive polling; two minutes keeps the ring fresh enough.
     private let minimumInterval: TimeInterval = 120
+    /// Earliest next `/usage` probe: ten minutes after one that worked, an hour after one that did not.
+    private var nextProbe = Date.distantPast
     private lazy var session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.urlCache = nil
@@ -56,13 +58,17 @@ final class ClaudeAccount: ObservableObject {
         task = Task {
             defer { busy = false; task = nil }
             do {
-                var current = try await loadCredentials(allowInteraction: allowInteraction)
-                do { try await fetchUsage(current) }
-                catch ClaudeError.signedOut {
-                    // Claude Code may have rotated the token since we cached it.
-                    credentials = nil
-                    current = try await loadCredentials(allowInteraction: allowInteraction)
-                    try await fetchUsage(current)
+                do {
+                    var current = try await loadCredentials(allowInteraction: allowInteraction)
+                    do { try await fetchUsage(current) }
+                    catch ClaudeError.signedOut {
+                        // Claude Code may have rotated the token since we cached it.
+                        credentials = nil
+                        current = try await loadCredentials(allowInteraction: allowInteraction)
+                        try await fetchUsage(current)
+                    }
+                } catch ClaudeError.expired {
+                    try await readThroughClaudeCode(allowInteraction: allowInteraction)
                 }
                 lastSucceeded = true
             } catch is CancellationError {
@@ -79,6 +85,27 @@ final class ClaudeAccount: ObservableObject {
     }
 
     func stop() { task?.cancel() }
+
+    /// The token expired because Claude Code has not run for a while. Opening Claude Code's own
+    /// `/usage` screen makes the CLI renew its login and shows the numbers; Sea Coffee still
+    /// never refreshes or writes the token.
+    private func readThroughClaudeCode(allowInteraction: Bool) async throws {
+        guard allowInteraction || Date() >= nextProbe else { throw ClaudeError.expired }
+        nextProbe = Date().addingTimeInterval(3600)
+        onStatus?("Claude Code 登录已过期，正在通过 Claude Code /usage 读取额度…")
+        let screen = await Task.detached(priority: .utility) { ClaudeUsageProbe.run() }.value
+        try Task.checkCancellation()
+        // Prefer the API once the CLI has renewed its login: it has exact reset dates.
+        credentials = nil
+        if let renewed = try? await loadCredentials(allowInteraction: false) {
+            nextProbe = Date().addingTimeInterval(600)
+            do { return try await fetchUsage(renewed) } catch where screen != nil && !(error is CancellationError) {}
+        }
+        guard let screen else { throw ClaudeError.expired }
+        nextProbe = Date().addingTimeInterval(600)
+        onUsage?(screen)
+        onStatus?("已通过 Claude Code /usage 更新\(plan.map { " · \($0)" } ?? "")")
+    }
 
     private func loadCredentials(allowInteraction: Bool) async throws -> ClaudeCredentials {
         if let credentials, !credentials.isExpired { return credentials }

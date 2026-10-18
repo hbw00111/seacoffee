@@ -62,7 +62,7 @@ Hover over the top of the screen to expand; move away to collapse. "固定展开
 ## Security and privacy
 
 - Credentials that Sea Coffee saves itself (Sub2API key, Cline login or key) live in `~/Library/Application Support/SeaIsland/credentials.json` with `0600` permissions and atomic writes. A file is used instead of the Keychain because, without an Apple Developer ID signature, Keychain grants are tied to each build's binary hash and are lost on every rebuild.
-- Claude and Grok tokens are read-only, kept in memory, and never refreshed or written back, so the original tools stay signed in.
+- Claude and Grok tokens are read-only, kept in memory, and never refreshed or written back, so the original tools stay signed in. When a token expires, only the original CLI renews it: Grok runs `grok models` once; for Claude, Sea Coffee opens Claude Code's `/usage` screen once in a dedicated folder and reads the quota from it (no tools, no hooks, no prompt sent, transcript removed afterwards).
 - No request follows redirects, and credentials are never written to logs or UserDefaults.
 - The Claude, Grok, and Cline quota endpoints are the ones their websites or CLIs use, not stable public APIs. If a format changes, Sea Coffee keeps the last value and shows a notice rather than a wrong number.
 

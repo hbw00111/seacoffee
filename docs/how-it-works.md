@@ -35,8 +35,14 @@
 - 请求 `GET https://api.anthropic.com/api/oauth/usage`，请求头 `anthropic-beta: oauth-2025-04-20`。映射 `five_hour`、`seven_day`、`seven_day_sonnet`、`seven_day_opus`；没有 `utilization` 的窗口视为未知。
 - 需要 `user:profile` 权限；`claude setup-token` 生成的令牌不可用。
 - 只读不写、从不刷新令牌（刷新会轮换 Claude Code 的刷新令牌，导致其登录失效），令牌仅保存在内存。过期时提示在终端运行一次 `claude` 续期。
-- 不做后台自动续期：`claude auth status`、`claude doctor`、非交互 `/status` 都不访问服务器，不会续期；只有真实请求才会触发 CLI 续期。2026-09-28 实测一次后台 `claude -p`：刷新令牌已失效时，CLI 续期失败后会**清空自己保存的登录**，因此后台触发有让用户在不知情时被登出的风险，暂不采用。
+- 不发后台请求续期：`claude auth status`、`claude doctor`、非交互 `/status` 都不访问服务器，不会续期。2026-09-28 实测一次后台 `claude -p`：刷新令牌已失效时，CLI 续期失败后会**清空自己保存的登录**，因此不用 `claude -p`。
 - 每 2 分钟查询一次，遇到 429 按 `Retry-After` 退避。
+- 令牌过期时的 `/usage` 兜底（参考 CodexBar 的 CLI PTY 方式，`ClaudeUsageProbe` + `IslandCore/ClaudeUsageScreen`）：
+  - 在 `~/Library/Application Support/SeaIsland/ClaudeProbe` 里用 `openpty` 启动交互式 `claude --allowed-tools "" --strict-mcp-config --settings '{"disableAllHooks":true,"remoteControlAtStartup":false}'`，去掉继承的 `CLAUDE_CODE_*` 环境变量；看到输入提示后输入 `/usage` 回车，不发任何提问。文件夹信任提示只会出现在这个专用目录，出现时回车确认。
+  - Claude Code 启动时会自己续期过期的令牌并写回钥匙串；Sea Coffee 随后重新读取凭据，优先用额度接口（重置时间更准确），读不到时才用屏幕结果。
+  - 屏幕解析：去掉 ANSI 转义，把光标移动换成空格或换行；`Current session` → `five_hour`，`Current week (all models)` → `seven_day`，含 Sonnet / Opus 的每周行 → 对应窗口；取标题后 3 行内的 `NN% used`（或 `% left`），`Resets 3pm (Asia/Shanghai)`、`Resets Oct 21, 11am` 解析为重置时间，读不懂时视为未知。屏幕多次重绘，以最后一帧为准；读到数值后再等 2.5 秒让每周窗口加载，总超时 30 秒。Team 账号只显示当前会话窗口。
+  - 结束时按 Esc、SIGTERM，2 秒后 SIGKILL；删除 `~/.claude/projects/` 下该目录对应的会话文件夹（路径中非字母数字字符替换为 `-`）。Claude Code 自己的 `history.jsonl` 会多一行 `/usage`，`~/.claude.json` 会记下该目录，Sea Coffee 不改这两个文件。
+  - 成功后至少 10 分钟、失败后 1 小时内不再自动尝试；用户点击刷新时不受限制。只在 `expired` 时触发，401 被拒（登录被撤销）不触发。
 
 ### Grok
 

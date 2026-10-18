@@ -7,7 +7,7 @@ public enum ClaudeError: LocalizedError, Equatable {
         case .notConnected: return "请在设置中连接 Claude Code。"
         case .missingCredentials: return "未找到 Claude Code 登录，请先在终端运行 claude 并登录。"
         case .missingScope: return "当前 Claude 凭据没有读取额度的权限，请运行 claude 重新登录（setup-token 生成的令牌不可用）。"
-        case .expired: return "Claude Code 登录已过期，在终端运行一次 claude 即可自动续期。"
+        case .expired: return "Claude Code 登录已过期，自动读取未成功；在终端运行一次 claude 即可续期。"
         case .signedOut: return "Claude 拒绝了当前凭据，请运行 claude 重新登录。"
         case .rateLimited(let until):
             return "Claude 额度接口暂时限流" + (until.map { "，\($0.formatted(date: .omitted, time: .shortened)) 后重试" } ?? "，稍后自动重试")

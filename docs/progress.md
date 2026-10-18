@@ -1,6 +1,6 @@
 # 项目进度
 
-最后更新：2026-09-29 · 版本 0.1.0（预览版）
+最后更新：2026-10-18 · 版本 0.1.0（预览版）
 
 ## 这个应用是干什么的
 
@@ -33,6 +33,8 @@
 安装与使用见 [README](../README.md)，接口与实现细节见 [工作原理](how-it-works.md)。
 
 ## 当前状态
+
+Claude 令牌过期后不再停在旧额度：Sea Coffee 会在独立目录里用伪终端打开一次 Claude Code，输入 `/usage` 读取屏幕上的额度，Claude Code 启动时顺带续期自己的登录，之后又回到额度接口。会话没有工具、钩子和 MCP，不发任何提问，结束后删除该目录的会话记录；成功后至少隔 10 分钟、失败后隔 1 小时才再试，点击刷新不受限制。本机实测约 9 秒读到 5 小时窗口并让令牌续期；49 项核心检查与账号隔离检查通过。
 
 | 模块 | 状态 | 验证情况 |
 |---|---|---|
@@ -73,6 +75,7 @@
 | 09-28 | Grok 登录过期后自动续期，不再需要手动在终端运行 grok |
 | 09-29 | AI 向你提问时弹出问号徽章：识别 Claude Code 的 `AskUserQuestion`（可知是否已回答，未回答期间左侧液滴变紫蓝色脉动、面板写“在等你回答”）和 Codex 的 `request_user_input`（非阻塞，只提示一次）；菜单栏新增“预览提问提示”，静态预览与动效预览加入提问版本；新增 3 项检查 |
 | 09-29 | 界面改版（`DESIGN.md`）：近黑平面、细分隔线与紫蓝强调色；展开面板改为账号列表，每个账号分别显示 5 小时、每周额度条与重置时间，过期显示“待更新”；设置窗口加宽到 800 pt，加入左侧分区导航；面板高度随额度行数变化；新增 `--render-settings` 静态预览 |
+| 10-18 | Claude 令牌过期时改为打开 Claude Code 的 `/usage` 读取额度（参考 CodexBar），CLI 顺带续期，Sea Coffee 仍不碰令牌；新增 `/usage` 屏幕解析与 1 项检查 |
 
 ## 进行中
 
@@ -86,7 +89,7 @@
 - [ ] 用真实提问在运行中的应用里实弹验证一次（Claude Code 触发 `AskUserQuestion`，确认弹窗、等待状态与回答后恢复）
 - [ ] 菜单栏图标由星芒换成液滴，与新应用图标统一
 - [ ] 本地使用统计：按天、按模型统计 Codex、Claude 的 token 用量，再加费用估算（参考 CodexBar 的本地日志扫描）
-- [ ] Claude 自动续期：在刷新令牌有效时验证后台续期是否安全，再决定是否加入
+- [ ] 观察 `/usage` 兜底在刷新令牌失效时的表现（CLI 是否会清空登录），以及 Claude Code 改版后屏幕文字是否仍能识别
 - [ ] 定位 Cline 设备码登录失败的原因（需要状态栏报错原文）
 - [ ] 用真实账号验证 Codex 官方额度
 - [ ] 设计令牌：统一圆角（现有 6 种）与字号（十余档），整理成一个文件
@@ -100,19 +103,19 @@
 - **非公开接口**：Claude、Grok、Cline 的额度接口是各家官网或 CLI 自用的接口，可能随时变化；失败时保留旧值并提示。
 - **未签名与未公证**：没有 Apple Developer ID。别人首次打开需右键“打开”；读取 Claude Code 钥匙串项的回退路径在每次重新编译后仍需授权（主路径走 `security` 工具，不受影响）。
 - **旧钥匙串条目残留**：旧版本的 `cline-oauth` 钥匙串条目因授权绑定旧二进制无法自动导入或删除；不影响使用（Cline 已改用 API Key），可在“钥匙串访问”中手动删除。
-- **Claude 令牌需要手动续期**：Claude CLI 只有在真实请求时才会续期，且续期失败会清空登录，所以不做后台自动续期；长时间不用终端里的 `claude` 时，Sea Coffee 会提示运行一次 `claude`。2026-09-28 的一次后台测试请求导致本机 Claude CLI 被登出，需运行 `claude auth login` 重新登录。
+- **Claude 令牌过期靠 `/usage` 兜底**：令牌过期时 Sea Coffee 打开一次 Claude Code 的 `/usage`，CLI 启动时自己续期；若刷新令牌已失效，仍需在终端运行 `claude` 重新登录（2026-09-28 曾有一次后台 `claude -p` 在续期失败后清空了登录，`/usage` 兜底不发提问，但失效时的行为尚未实测）。每次兜底会在 Claude Code 的 `~/.claude/history.jsonl` 留下一行 `/usage`，在 `~/.claude.json` 留下探针目录的项目条目，Sea Coffee 不改这两个文件。屏幕文字随 Claude Code 版本可能变化，识别不到时显示原来的过期提示。
 - **任务监听依赖本地文件格式**：各工具升级改格式后可能识别不到，需要跟进；只识别明确的结束事件和明确的提问工具调用，不判断“等待审批”，AI 在正文里以问句结尾也按普通完成处理。
 - **提问的等待状态只在 45 分钟内有效**：Claude 提问后超过 45 分钟没有任何事件，会话按规则转为“未知”，紫蓝色等待标记随之消失；Codex 的提问只在提问那一刻提示一次，没有常驻的等待状态。
 
 ## 开发备忘
 
 - 构建与运行：`bash scripts/build-app.sh && open "dist/Sea Coffee.app"`
-- 检查：`swift run IslandChecks`（48 项）、`bash scripts/check-account-isolation.sh`、`bash scripts/check-credentials.sh`
+- 检查：`swift run IslandChecks`（49 项）、`bash scripts/check-account-isolation.sh`、`bash scripts/check-credentials.sh`
 - 静态预览（不读取凭据）：`dist/Sea\ Coffee.app/Contents/MacOS/SeaCoffee --render-preview dist/preview.png` 导出岛的四种状态（运行中、完成、提问、收起），`--render-settings /tmp/settings.png` 导出设置的三个分区。改界面前先读 `DESIGN.md`。
 - 目录：`Sources/IslandCore` 放与界面无关、可测试的逻辑（各家协议解析、会话状态机、凭据文件、PI-Desktop 数据库读取）；`Sources/SeaCoffee` 放界面与账号接入。
 - 几个关键决定：
   - **零第三方依赖**：动效、加载、SVG 图标、SQLite 读取均用系统框架实现。
-  - **复用其他工具的登录只读不写**：从不刷新 Claude、Grok 的令牌，避免让原工具掉登录。
+  - **复用其他工具的登录只读不写**：从不刷新 Claude、Grok 的令牌，避免让原工具掉登录；需要续期时只让原 CLI 自己续期（Grok 运行 `grok models`，Claude 打开 `/usage`）。
   - **未知就显示未知**：不把缺失数据显示成 0% 或 100%。
   - **隐私**：只保留事件类型、时间、项目目录名与模型名，不保存对话内容。
 

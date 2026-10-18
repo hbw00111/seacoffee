@@ -50,6 +50,45 @@ final class ClaudeTests {
         expectError(.http(500), try ClaudeProtocol.validate(status: 500, retryAfter: nil))
     }
 
+    func usageScreen() {
+        let shanghai = TimeZone(identifier: "Asia/Shanghai")!
+        // 2026-10-18 10:00 in Shanghai.
+        let now = Date(timeIntervalSince1970: 1_792_288_800)
+        let esc = "\u{1B}"
+        // An early frame still loading, then the full frame; the later one wins.
+        let screen = """
+        \(esc)[2K\(esc)[1ACurrent session\(esc)[1B\(esc)[2G█████\(esc)[3C9% used\r
+        Settings\(esc)[2CStatus\(esc)[2CUsage\r
+        \(esc)[?25lCurrent session\(esc)[1E██████████\(esc)[10C19% used\(esc)[1EResets 3pm (Asia/Shanghai)\r
+        Current week (all models)\(esc)[1E███\(esc)[5C42.5% used\(esc)[1EResets Oct 21, 11am (Asia/Shanghai)\r
+        Current week (Sonnet only)\r\n80% left\r\nResets Jan 3 at 9:30am\r
+        \(esc)]0;claude\u{07}What's contributing to your limits usage?\r
+        """
+        guard let usage = ClaudeUsageScreen.usage(screen, now: now, timeZone: shanghai) else {
+            return expectEqual("nil", "usage", "screen should parse")
+        }
+        expectEqual(usage.quotas.map(\.id), ["claude-five_hour", "claude-seven_day", "claude-seven_day_sonnet"])
+        expectEqual(usage.quotas.map(\.label), ["5 小时", "每周", "Sonnet 每周"])
+        expectEqual(usage.quotas.map(\.remaining), [81, 57.5, 80])
+        expectEqual(usage.quotas.map(\.monetary), [false, false, false])
+        guard usage.quotas.count == 3 else { return }
+        expectEqual(usage.quotas[0].resetsAt, Date(timeIntervalSince1970: 1_792_306_800))  // today 15:00
+        expectEqual(usage.quotas[1].resetsAt, Date(timeIntervalSince1970: 1_792_551_600))  // Oct 21 11:00
+        expectEqual(usage.quotas[2].resetsAt, Date(timeIntervalSince1970: 1_798_939_800))  // next Jan 3 09:30
+        expectEqual(usage.source, "Claude")
+
+        // A time already passed today means tomorrow.
+        expectEqual(ClaudeUsageScreen.usage("Current session\n50% used\nResets 9am", now: now, timeZone: shanghai)?
+            .quotas.first?.resetsAt, Date(timeIntervalSince1970: 1_792_371_600))
+        // Unreadable reset text is unknown, not a guess.
+        expectNil(ClaudeUsageScreen.usage("Current session\n50% used\nResets soon", now: now, timeZone: shanghai)?
+            .quotas.first?.resetsAt)
+        // No percentage, or an impossible one, is not usage.
+        for text in ["", "Current session\nLoading…", "Current session\n140% used", "Total cost: $0.00\n18% of your usage came from MCP"] {
+            expectNil(ClaudeUsageScreen.usage(text, now: now, timeZone: shanghai))
+        }
+    }
+
     private func expectError<T>(_ expected: ClaudeError, _ expression: @autoclosure () throws -> T,
                                 file: StaticString = #filePath, line: UInt = #line) {
         do { _ = try expression(); expectEqual("no error", "\(expected)", file: file, line: line) }
