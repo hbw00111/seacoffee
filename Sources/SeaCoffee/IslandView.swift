@@ -3,7 +3,7 @@ import IslandCore
 
 /// Icon and colour for each quota source, shared by the island and Settings.
 enum ServiceStyle {
-    case codex, cline, claude, grok, pi
+    case codex, cline, claude, grok, pi, dsh
     init(agent: Agent) {
         switch agent {
         case .codex: self = .codex
@@ -11,6 +11,7 @@ enum ServiceStyle {
         case .grok: self = .grok
         case .cline: self = .cline
         case .pi: self = .pi
+        case .dsh: self = .dsh
         }
     }
     init(laneID: String?) {
@@ -29,6 +30,7 @@ enum ServiceStyle {
         case .claude: return Palette.clay
         case .grok: return Palette.silver
         case .pi: return Palette.lilac
+        case .dsh: return Palette.ice
         }
     }
     var notchTint: Color {
@@ -38,6 +40,7 @@ enum ServiceStyle {
         case .claude: return NotchPalette.clay
         case .grok: return NotchPalette.silver
         case .pi: return NotchPalette.lilac
+        case .dsh: return NotchPalette.ice
         }
     }
 

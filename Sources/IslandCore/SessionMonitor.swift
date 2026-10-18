@@ -23,15 +23,16 @@ public struct SessionSource: Sendable {
     public static func defaults(codexPath: String, enabled: Set<Agent> = Set(Agent.allCases)) -> [SessionSource] {
         let paths: [(Agent, String)] = [(.codex, codexPath), (.claude, "~/.claude/projects"),
                                         (.grok, "~/.grok/sessions"), (.cline, "~/.cline/data/sessions"),
-                                        (.pi, "~/.pi/agent/sessions")]
+                                        (.pi, "~/.pi/agent/sessions"),
+                                        (.dsh, "~/.dsh/storages/session_projcache/sessions")]
         var sources = paths.filter { enabled.contains($0.0) }.map { SessionSource(agent: $0.0, path: $0.1) }
         // PI-Desktop shares the Pi toggle but stores sessions in its own database.
         if enabled.contains(.pi) { sources.append(SessionSource(agent: .pi, path: "~/.pi-desktop/pi.sqlite", isDatabase: true)) }
         return sources
     }
 
-    /// Cline rewrites a small JSON document; everyone else appends JSON lines.
-    var isSnapshot: Bool { agent == .cline }
+    /// Cline and DSH rewrite a small JSON document; everyone else appends JSON lines.
+    var isSnapshot: Bool { agent == .cline || agent == .dsh }
 
     func accepts(_ url: URL) -> Bool {
         let name = url.lastPathComponent
@@ -42,6 +43,7 @@ public struct SessionSource: Sendable {
         case .grok: return name == "events.jsonl"
         case .pi: return url.pathExtension == "jsonl" && url.deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL == root.standardizedFileURL
         case .cline: return name.hasPrefix("session_") && name.hasSuffix(".json") && !name.hasSuffix(".messages.json")
+        case .dsh: return name.hasPrefix("session-") && name.hasSuffix(".json")
         }
     }
 
@@ -72,7 +74,16 @@ public struct SessionSource: Sendable {
         case .claude: state.consumeClaude(line, sidechain: false)
         case .grok: state.consumeGrok(line)
         case .pi: state.consumePi(line)
-        case .cline: break
+        case .cline, .dsh: break
+        }
+    }
+
+    /// A whole document rewritten in place, read only when its modification date moves.
+    func consumeSnapshot(_ data: Data, modified: Date, into state: inout SessionState) {
+        switch agent {
+        case .dsh: state.consumeDsh(data, modified: modified)
+        case .cline: state.consumeCline(data, modified: modified)
+        default: break
         }
     }
 }
@@ -198,7 +209,7 @@ public final class SessionMonitor: @unchecked Sendable {
                         if modified != cursor.modified {
                             let data = try Data(contentsOf: url)
                             guard data.count < 4 * 1024 * 1024 else { continue }
-                            cursor.state.consumeCline(data, modified: modified)
+                            source.consumeSnapshot(data, modified: modified, into: &cursor.state)
                         }
                     } else {
                         try read(url, source: source, cursor: &cursor)

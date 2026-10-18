@@ -4,7 +4,7 @@
 
 English | [简体中文](README.md)
 
-An AI status island that lives in your MacBook's notch. See at a glance whether Codex, Claude Code, Grok, Cline, and Pi are working, and how much of each subscription or balance you have left.
+An AI status island that lives in your MacBook's notch. See at a glance whether Codex, Claude Code, Grok, Cline, Pi, and DSH are working, and how much of each subscription or balance you have left.
 
 Native SwiftUI + AppKit. No Electron, no third-party runtime dependencies.
 
@@ -16,9 +16,9 @@ Native SwiftUI + AppKit. No Electron, no third-party runtime dependencies.
 
 - **Unified interface**: warm surfaces and clay accents inspired by open-claude-ui, with light, dark, and system themes. Account shortcuts, per-tool monitoring controls, consistent usage filters, and a fixed save bar keep settings easy to navigate. The notch stays dark.
 
-- **Usage dashboard**: mirrors CC Switch's usage statistics, reading CC Switch's local database read-only. Ranges: today, last 24 hours, last 7 / 14 / 30 days and all time (days older than 30 come from daily rollups), filterable by app, provider and model. It shows total cost, total requests, real tokens consumed, cache hit rate, a usage trend and a heatmap, plus a request log (tokens, cost and tok/s per request, with a detail view) and provider and model tables. Costs follow CC Switch's price table: requests recorded at $0 are re-priced with its rules and those without a price show as "未定价" (unpriced); this is not a bill. Quota and balance trends start accumulating after this version is installed, keeping the latest successful snapshot every 15 minutes for about 30 days; they work without CC Switch.
+- **Usage dashboard**: mirrors CC Switch's usage statistics, reading CC Switch's local database read-only. Ranges: today, last 24 hours, last 7 / 14 / 30 days and all time (days older than 30 come from daily rollups), filterable by app, provider and model. It shows total cost, total requests, real tokens consumed, cache hit rate, a usage trend and a heatmap, plus a request log (tokens, cost and tok/s per request, with a detail view) and provider and model tables. Costs follow CC Switch's price table: requests recorded at $0 are re-priced with its rules and those without a price show as "未定价" (unpriced); this is not a bill. Quota and balance trends start accumulating after this version is installed, keeping the latest successful snapshot every 15 minutes for about 30 days; they work without CC Switch. A separate "DSH 记录" tab reads DSH's own session projection cache and lists turns, steps, input / output / cached tokens, decode tok/s and first-token latency per session; those numbers stay out of the CC Switch request statistics.
 
-- **Task status**: follows the local session files of Codex, Claude Code, Grok, Cline, and Pi (including PI-Desktop, which keeps its sessions in SQLite) and shows how many conversations are running. When a task finishes, the notch plays a checkmark animation labelled with the agent and model that finished it (for example `Claude Code · claude-opus-5-5`). When an agent asks you a question, the notch pops the same badge with a question mark, labelled with the agent and project that is asking (supported for Claude Code's `AskUserQuestion` and Codex's `request_user_input`). If a Claude Code question stays unanswered, the drop on the left turns violet and pulses, and the expanded panel says it is waiting for you. Failures and interruptions show a text notice.
+- **Task status**: follows the local session files of Codex, Claude Code, Grok, Cline, Pi (including PI-Desktop, which keeps its sessions in SQLite) and DSH and shows how many conversations are running. When a task finishes, the notch plays a checkmark animation labelled with the agent and model that finished it (for example `Claude Code · claude-opus-5-5`). When an agent asks you a question, the notch pops the same badge with a question mark, labelled with the agent and project that is asking (supported for Claude Code's `AskUserQuestion` and Codex's `request_user_input`). If a Claude Code question stays unanswered, the drop on the left turns violet and pulses, and the expanded panel says it is waiting for you. Failures and interruptions show a text notice.
 - **Quotas and balances**, each refreshed independently:
 
   | Source | What it shows | How it connects |
@@ -70,7 +70,7 @@ Open **Settings** and connect the sources you use:
 - **Cline Pass**: create an API key at [app.cline.bot](https://app.cline.bot) and paste it in, or sign in with a device code in your browser.
 - **Claude**: sign in with `claude` in a terminal first, then click "连接 Claude Code" (Connect Claude Code).
 - **Grok**: run `grok login` first, then click "连接 Grok" (Connect Grok). After that, an expired token is refreshed by the Grok CLI automatically.
-- **Task status**: all five agents are followed by default; each can be turned off. When Pi uses Cline Pass, the completion label names the channel and the usage counts toward the Cline quota.
+- **Task status**: all six agents are followed by default; each can be turned off. When Pi uses Cline Pass, the completion label names the channel and the usage counts toward the Cline quota.
 
 To start Sea Coffee when you log in, turn on "开机自启" (Launch at login) under "外观与交互" (Appearance and interaction) in Settings; it takes effect immediately.
 
@@ -105,7 +105,7 @@ Issues and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
 - [NotchAI](https://github.com/Winnie-Wong2026/NotchAI): ideas for the AppKit overlay and local monitoring.
 - [Sub2API](https://github.com/Wei-Shaw/sub2api), [Codex App Server](https://developers.openai.com/codex/app-server), [Cline SDK](https://github.com/cline/cline): API fields and sign-in protocols.
 
-Codex, Claude, Cline, and Grok names and logos belong to OpenAI, Anthropic, Cline, and xAI. This project is not affiliated with any of them; the logos only identify each quota source.
+Codex, Claude, Cline, and Grok names and logos belong to OpenAI, Anthropic, Cline, and xAI; DSH belongs to DeepSeek. This project is not affiliated with any of them; the logos only identify each source.
 
 ## License
 

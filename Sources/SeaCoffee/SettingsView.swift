@@ -261,6 +261,7 @@ struct SettingsView: View {
         case .grok: return "~/.grok/sessions"
         case .cline: return "~/.cline/data/sessions"
         case .pi: return "~/.pi/agent/sessions · PI-Desktop"
+        case .dsh: return "~/.dsh/storages/session_projcache/sessions"
         }
     }
 

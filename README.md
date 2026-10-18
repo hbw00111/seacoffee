@@ -4,7 +4,7 @@
 
 [English](README.en.md) | 简体中文
 
-一个住在 MacBook 刘海里的 AI 状态岛：一眼看到 Codex、Claude Code、Grok、Cline、Pi 的任务是否在跑，以及各家订阅和余额还剩多少。
+一个住在 MacBook 刘海里的 AI 状态岛：一眼看到 Codex、Claude Code、Grok、Cline、Pi、DSH 的任务是否在跑，以及各家订阅和余额还剩多少。
 
 原生 SwiftUI + AppKit，无 Electron，无第三方运行时依赖。
 
@@ -14,9 +14,9 @@
 
 - **统一界面**：参考 open-claude-ui 的暖色设计，设置支持暖白、深色和跟随系统。账号概览可直接跳转到各服务，任务监测逐项开关，用量筛选与图表统一样式；导航与保存操作固定可见，刘海保持深色。
 
-- **用量模块**：对齐 CC Switch 的“使用统计”，只读本机 CC Switch 数据库。时间范围支持当天、近 24 小时、近 7 / 14 / 30 天和全部（30 天前的部分来自按天汇总）；可按应用、供应商、模型筛选。显示总成本、总请求数、真实消耗 Tokens、缓存命中率、使用趋势和用量热力图，以及请求日志（每条的 Token、成本、tok/s 速度，点开看明细）、供应商和模型表格。花费按 CC Switch 的价格表计算，记录为 $0 的请求会照它的规则补算，找不到价格的显示“未定价”，不等同于账单。额度与余额趋势从新版启动后开始积累，每 15 分钟保留最新成功快照，保留约 30 天；没有 CC Switch 也能记录额度趋势。
+- **用量模块**：对齐 CC Switch 的“使用统计”，只读本机 CC Switch 数据库。时间范围支持当天、近 24 小时、近 7 / 14 / 30 天和全部（30 天前的部分来自按天汇总）；可按应用、供应商、模型筛选。显示总成本、总请求数、真实消耗 Tokens、缓存命中率、使用趋势和用量热力图，以及请求日志（每条的 Token、成本、tok/s 速度，点开看明细）、供应商和模型表格。花费按 CC Switch 的价格表计算，记录为 $0 的请求会照它的规则补算，找不到价格的显示“未定价”，不等同于账单。额度与余额趋势从新版启动后开始积累，每 15 分钟保留最新成功快照，保留约 30 天；没有 CC Switch 也能记录额度趋势。“DSH 记录”页单独读本机 DSH 的会话投影缓存，按会话列出轮次、步数、输入 / 输出 / 缓存 Tokens、解码 tok/s 与首字延迟，不参与 CC Switch 的请求统计。
 
-- **任务状态**：本地监听 Codex、Claude Code、Grok、Cline、Pi（含 PI-Desktop）的会话记录，显示运行中的对话数；任务完成时在刘海处播放对勾动效，并注明是哪个工具、哪个模型完成的（如 `Claude Code · claude-opus-5-5`）；AI 向你提问时刘海处同样弹出徽章，画出问号并注明是哪个工具、哪个项目在问（目前支持 Claude Code 的 `AskUserQuestion` 和 Codex 的 `request_user_input`；Claude Code 提问后一直没回答，左侧液滴会变成紫蓝色脉动，展开面板写明在等你回答）；失败或中断时文字提醒。
+- **任务状态**：本地监听 Codex、Claude Code、Grok、Cline、Pi（含 PI-Desktop）、DSH 的会话记录，显示运行中的对话数；任务完成时在刘海处播放对勾动效，并注明是哪个工具、哪个模型完成的（如 `Claude Code · claude-opus-5-5`）；AI 向你提问时刘海处同样弹出徽章，画出问号并注明是哪个工具、哪个项目在问（目前支持 Claude Code 的 `AskUserQuestion` 和 Codex 的 `request_user_input`；Claude Code 提问后一直没回答，左侧液滴会变成紫蓝色脉动，展开面板写明在等你回答）；失败或中断时文字提醒。
 - **额度与余额**，每家独立刷新、互不影响：
 
   | 来源 | 显示内容 | 接入方式 |
@@ -72,7 +72,7 @@ bash scripts/build-droplet.sh
 - **Cline Pass**：推荐在 [app.cline.bot](https://app.cline.bot) 生成 API Key 粘贴保存；也可以用设备码在浏览器登录。
 - **Claude**：先在终端运行 `claude` 并登录，然后点击“连接 Claude Code”。
 - **Grok**：先运行 `grok login`，然后点击“连接 Grok”。之后令牌过期会自动让 Grok CLI 续期，不用再手动运行。
-- **任务状态**：默认监听全部五个工具，可逐个关闭。通过 Pi 使用 Cline Pass 时，完成提示会注明渠道，额度也计入 Cline 额度。
+- **任务状态**：默认监听全部六个工具，可逐个关闭。通过 Pi 使用 Cline Pass 时，完成提示会注明渠道，额度也计入 Cline 额度。
 
 需要开机自动运行时，在设置“外观与交互”中打开“开机自启”（立即生效）。
 
@@ -109,7 +109,7 @@ bash scripts/check-credentials.sh        # 凭据存储与旧钥匙串导入（�
 - [NotchAI](https://github.com/Winnie-Wong2026/NotchAI)：AppKit 浮层与本地监测思路。
 - [Sub2API](https://github.com/Wei-Shaw/sub2api)、[Codex App Server](https://developers.openai.com/codex/app-server)、[Cline SDK](https://github.com/cline/cline)：接口字段与登录协议。
 
-Codex、Claude、Cline、Grok 的名称和标志归 OpenAI、Anthropic、Cline、xAI 所有，本项目与它们没有任何隶属关系，标志仅用于标识对应的额度来源。
+Codex、Claude、Cline、Grok 的名称和标志归 OpenAI、Anthropic、Cline、xAI 所有，DSH 归 DeepSeek，本项目与它们没有任何隶属关系，标志仅用于标识对应的来源。
 
 ## 许可证
 

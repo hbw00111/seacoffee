@@ -18,7 +18,7 @@ func expectNoThrow<T>(_ expression: @autoclosure () throws -> T, file: StaticStr
 @main
 enum Checks {
     static func main() async {
-        let cline = ClineTests(); let claude = ClaudeTests(); let grok = GrokTests(); let credentials = CredentialFileTests(); let agents = AgentSessionTests(); let piDesktop = PiDesktopTests(); let topUp = WalletTopUpTests()
+        let cline = ClineTests(); let claude = ClaudeTests(); let grok = GrokTests(); let credentials = CredentialFileTests(); let agents = AgentSessionTests(); let piDesktop = PiDesktopTests(); let topUp = WalletTopUpTests(); let dsh = DshTests()
         let telemetry = TelemetryTests(); let monitor = SessionMonitorTests()
         let checks: [(String, () async throws -> Void)] = [
             ("usage cache normalization", UsageAnalyticsTests().normalization),
@@ -96,6 +96,8 @@ enum Checks {
             ("Pi turns, models and Cline Pass channel", agents.piTurns),
             ("PI-Desktop database: latest turn per session", piDesktop.latestTurnPerSession),
             ("PI-Desktop database: completion notices", piDesktop.monitorReportsCompletion),
+            ("DSH projection cache, tokens and speed", dsh.cacheAndSessionState),
+            ("DSH snapshot monitoring and completion", dsh.storeAndMonitor),
             ("monitor follows Claude, Grok and Cline together", agents.monitorsAllAgents),
             ("Claude background subagents keep a conversation running", agents.backgroundSubagents)
         ]

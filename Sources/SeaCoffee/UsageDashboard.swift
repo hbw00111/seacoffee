@@ -23,6 +23,8 @@ struct UsagePrepared: Sendable {
 @MainActor
 final class UsageDashboardModel: ObservableObject {
     private(set) var dataset = UsageDataset()
+    /// DSH keeps its own counters; they are not CC Switch request rows and stay out of that report.
+    @Published var dshSessions: [DshSession] = []
     @Published var revision = 0
     @Published var prepared = UsagePrepared()
     @Published var heatmap: UsageHeatmap?
@@ -65,7 +67,11 @@ final class UsageDashboardModel: ObservableObject {
         let result = await Task.detached(priority: .utility) {
             Swift.Result { let data = try UsageStats.read(); return (data, data.apps, data.providers, data.models) }
         }.value
+        let sessions = await Task.detached(priority: .utility) {
+            DshStore.read(since: Date().addingTimeInterval(-30 * 86_400))
+        }.value
         guard !Task.isCancelled else { return }
+        dshSessions = sessions
         switch result {
         case .success(let (data, apps, providers, models)):
             dataset = data; self.apps = apps; self.providers = providers; self.models = models
@@ -86,7 +92,7 @@ private enum UsagePeriod: String, CaseIterable, Identifiable {
     }
 }
 private enum UsageTab: String, CaseIterable, Identifiable {
-    case calls = "调用统计", quota = "额度趋势"
+    case calls = "调用统计", dsh = "DSH 记录", quota = "额度趋势"
     var id: String { rawValue }
 }
 private enum UsageMetric: String, CaseIterable, Identifiable {
@@ -127,6 +133,7 @@ struct UsageDashboard: View {
     @State private var period: UsagePeriod = .week
     @State private var range: UsageRange = .week
     @State private var heatMetric: UsageHeatmapMetric = .tokens
+    @State private var dshPeriod: UsagePeriod = .week
     @State private var app = allApps
     @State private var provider = allProviders
     @State private var model = allModels
@@ -178,11 +185,11 @@ struct UsageDashboard: View {
                 HStack {
                     Text("时间范围").font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.dim)
                     Spacer()
-                    GlassSegmented(options: UsagePeriod.allCases, selection: $period) { $0.rawValue }
+                    GlassSegmented(options: UsagePeriod.allCases, selection: tab == .dsh ? $dshPeriod : $period) { $0.rawValue }
                         .frame(maxWidth: 240)
                 }
             }
-            if tab == .calls { callContent } else { quotaContent }
+            if tab == .calls { callContent } else if tab == .dsh { dshContent } else { quotaContent }
         }
         .task {
             guard !preview else { return }
@@ -248,6 +255,101 @@ struct UsageDashboard: View {
                     Text("\(data.prepared.unpriced) 条请求未定价").font(.system(size: 10)).foregroundStyle(Palette.warning)
                 }
             }
+        }
+    }
+
+    // MARK: DSH 记录
+
+    private var dshContent: some View {
+        let start = dshPeriod.start
+        let sessions = data.dshSessions.filter { $0.lastPromptAt >= start && ($0.turns > 0 || $0.tokens > 0 || $0.running) }
+            .sorted { $0.lastPromptAt > $1.lastPromptAt }
+        let tokens = sessions.reduce(0) { $0 + $1.tokens }
+        let uncached = sessions.reduce(0) { $0 + $1.uncachedInput }
+        let output = sessions.reduce(0) { $0 + $1.output }
+        let decodeMs = sessions.reduce(0) { $0 + $1.decodeMs }
+        let decodeTokens = sessions.reduce(0) { $0 + $1.decodeTokens }
+        let ttftMs = sessions.reduce(0) { $0 + $1.ttftMs }
+        let ttftSteps = sessions.reduce(0) { $0 + $1.ttftSteps }
+        let speed = decodeMs >= 100 ? decodeTokens / (decodeMs / 1000) : nil
+        let running = sessions.filter(\.running).count
+        return VStack(alignment: .leading, spacing: 14) {
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 14) {
+                metricCard("会话数", value: sessions.isEmpty ? "—" : "\(sessions.count)",
+                           detail: running > 0 ? "\(running) 个正在运行" : "该范围没有运行中的会话", tint: Palette.ice)
+                metricCard("真实消耗 Tokens", value: sessions.isEmpty ? "—" : UsageFormat.tokens(tokens),
+                           detail: "新增输入 \(UsageFormat.tokens(uncached)) · 输出 \(UsageFormat.tokens(output))", tint: Palette.accent)
+                metricCard("解码速度", value: UsageFormat.tokensPerSecond(speed), detail: "输出 Tokens ÷ 解码时长", tint: Palette.mint)
+                metricCard("首字延迟", value: ttftSteps > 0 ? String(format: "%.1f s", ttftMs / Double(ttftSteps) / 1000) : "—",
+                           detail: "\(ttftSteps) 个步骤有记录", tint: Palette.blue)
+            }
+            if sessions.isEmpty {
+                emptyState(icon: "terminal", title: "还没有 DSH 记录",
+                           detail: "运行一次 dsh web 或 dsh headless 后，这里会按会话列出轮次、步数、Tokens 与速度。",
+                           loading: data.loading)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    dshRow(nil)
+                    ForEach(Array(sessions.prefix(40))) { session in
+                        GlassDivider()
+                        dshRow(session)
+                    }
+                }.padding(18).glassCard()
+                Text(sessions.count > 40 ? "共 \(sessions.count) 个会话，按最近提问排序，显示最近 40 个。"
+                                        : "共 \(sessions.count) 个会话，按最近提问排序。")
+                    .font(.system(size: 10)).foregroundStyle(Palette.dim)
+            }
+            Text("来源：本机 DSH 的会话投影缓存（~/.dsh/storages/session_projcache），只读轮次、步数、Tokens 与时长，不读对话。缓存每 200 个事件或 5 秒落盘一次，数字可能略晚；速度与首字取自 DSH 自己的统计。")
+                .font(.system(size: 10)).foregroundStyle(Palette.dim)
+        }
+    }
+
+    private enum DshCol { static let time: CGFloat = 112, model: CGFloat = 138, steps: CGFloat = 48, number: CGFloat = 44, speed: CGFloat = 56, ttft: CGFloat = 44 }
+
+    private func dshCell(_ text: String, _ width: CGFloat, header: Bool = false, trailing: Bool = false, dim: Bool = false) -> some View {
+        Text(text).font(.system(size: header ? 10.5 : 11.5, weight: header ? .medium : .regular))
+            .foregroundStyle(header || dim ? Palette.dim : Palette.text).monospacedDigit().lineLimit(1)
+            .frame(width: width, alignment: trailing ? .trailing : .leading)
+    }
+
+    @ViewBuilder private func dshRow(_ session: DshSession?) -> some View {
+        if let session {
+            let today = Calendar.current.isDateInToday(session.lastPromptAt)
+            let ttft = session.averageFirstTokenMs.map { String(format: "%.1f s", $0 / 1000) } ?? "—"
+            HStack(spacing: 6) {
+                VStack(alignment: .leading, spacing: 2) {
+                    dshCell((today ? timeToday : timeOther).string(from: session.lastPromptAt), DshCol.time)
+                    dshCell(session.project.isEmpty ? "DSH" : session.project, DshCol.time, dim: true).font(.system(size: 10))
+                }.frame(width: DshCol.time, alignment: .leading)
+                VStack(alignment: .leading, spacing: 2) {
+                    dshCell(session.displayModel ?? "未记录模型", DshCol.model)
+                    dshCell(session.provider ?? "—", DshCol.model, dim: true).font(.system(size: 10))
+                }.frame(width: DshCol.model, alignment: .leading)
+                Spacer(minLength: 0)
+                dshCell("\(session.turns) / \(session.steps)", DshCol.steps, trailing: true)
+                dshCell(UsageFormat.tokens(session.uncachedInput), DshCol.number, trailing: true)
+                dshCell(UsageFormat.tokens(session.output), DshCol.number, trailing: true)
+                dshCell(session.cacheRead > 0 ? UsageFormat.tokens(session.cacheRead) : "—", DshCol.number, trailing: true)
+                dshCell(UsageFormat.tokensPerSecond(session.tokensPerSecond), DshCol.speed, trailing: true)
+                dshCell(ttft, DshCol.ttft, trailing: true)
+                Circle().fill(session.running ? Palette.ice : Color.clear).frame(width: 5, height: 5)
+            }
+            .padding(.vertical, 8).contentShape(Rectangle())
+            .help(session.openStep.map { "\(session.project.isEmpty ? "DSH" : session.project) · 第 \($0) 步运行中" }
+                  ?? "\(session.project.isEmpty ? "DSH" : session.project) · 已结束")
+        } else {
+            HStack(spacing: 6) {
+                dshCell("时间 / 项目", DshCol.time, header: true)
+                dshCell("模型 / 供应商", DshCol.model, header: true)
+                Spacer(minLength: 0)
+                dshCell("轮/步", DshCol.steps, header: true, trailing: true)
+                dshCell("输入", DshCol.number, header: true, trailing: true)
+                dshCell("输出", DshCol.number, header: true, trailing: true)
+                dshCell("缓存", DshCol.number, header: true, trailing: true)
+                dshCell("速度", DshCol.speed, header: true, trailing: true)
+                dshCell("首字", DshCol.ttft, header: true, trailing: true)
+                Color.clear.frame(width: 5, height: 5)
+            }.padding(.bottom, 8)
         }
     }
 

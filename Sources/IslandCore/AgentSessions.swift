@@ -18,7 +18,7 @@ extension SessionState {
 }
 
 public enum Agent: String, CaseIterable, Sendable {
-    case codex, claude, grok, cline, pi
+    case codex, claude, grok, cline, pi, dsh
     public var name: String {
         switch self {
         case .codex: return "Codex"
@@ -26,6 +26,7 @@ public enum Agent: String, CaseIterable, Sendable {
         case .grok: return "Grok"
         case .cline: return "Cline"
         case .pi: return "Pi"
+        case .dsh: return "DSH"
         }
     }
 }
@@ -175,5 +176,25 @@ extension SessionState {
         }
         if next != state { transition(next, "\(status):\(time.timeIntervalSince1970)", at: time) }
         else { activity(at: time) }
+    }
+
+    /// DSH: `~/.dsh/storages/session_projcache/sessions/session-<id>.json`, the harness's own
+    /// projection of the session log, rewritten whole every 200 events or 5 seconds.
+    public mutating func consumeDsh(_ data: Data, modified: Date) {
+        guard let session = DshStore.parse(data, id: "", modified: modified) else { return }
+        if !session.project.isEmpty { project = session.project }
+        if let name = session.model, !name.isEmpty { model = name }
+        let time = max(modified, updatedAt)
+        // A turn that ended is a completed one; DSH records no outcome beyond the boundary.
+        let next: RunState = session.running ? .running : session.turns > 0 ? .completed : .unknown
+        let key = "dsh:\(session.turns):\(session.steps):\(session.running)"
+        if next != state { transition(next, key, at: time) } else { activity(at: time) }
+        // `transition` above marks an earlier question answered; an open one is still waiting.
+        if let call = session.question {
+            if question?.id == call { question?.answered = false } else { ask(call, at: time, blocking: true) }
+        } else if question?.answered == false {
+            // The cache no longer lists the call: it was answered or dismissed while the turn went on.
+            question?.answered = true
+        }
     }
 }

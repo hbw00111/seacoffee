@@ -19,7 +19,7 @@
 
 **支持的来源**：
 
-- **任务状态**（读取本机会话记录，不联网）：Codex、Claude Code、Grok、Cline、Pi 命令行、PI-Desktop。
+- **任务状态**（读取本机会话记录，不联网）：Codex、Claude Code、Grok、Cline、Pi 命令行、PI-Desktop、DSH。
 - **额度与余额**（只读查询）：Codex API（Sub2API 中转站）、Codex 官方账号、Cline Pass、Claude 订阅、SuperGrok。
 
 **它不做什么**：
@@ -33,6 +33,8 @@
 安装与使用见 [README](../README.md)，接口与实现细节见 [工作原理](how-it-works.md)。
 
 ## 当前状态
+
+接入 DSH（DeepSeek Harness）：任务监测多一个工具开关，读 `~/.dsh/storages/session_projcache/sessions/session-*.json`（DSH 自己写的会话投影，原始事件日志是 zstd 压缩的 JSONL，不读）。运行中看 `turnBoundary.openTurnStartSeq` 与 `sessionStats.openStep`，轮次结束即提示完成；模型、项目、提问（`userQuestions` 的 `callId`）与其它工具一致。额度不做。用量页新增“DSH 记录”页：按会话列出轮次、步数、输入 / 输出 / 缓存 Tokens、解码 tok/s 与首字延迟，汇总卡给出会话数、真实消耗 Tokens、加权解码速度与平均首字；这些数字来自 DSH 自己的统计，不并入 CC Switch 的请求统计。本机 34 个会话读取正常（7 天内 19 个，1 个运行中，224 tok/s、首字 4.1 s），当前会话被识别为运行中；60 项核心检查、账号隔离检查与插件构建通过。投影缓存每 200 个事件或 5 秒落盘，状态最多晚 5 秒；空白会话不列出。已安装到 `/Applications` 并重启，刘海展开显示“DSH 正在运行 · seacoffee · 1 个对话运行中”；真实设置窗口里的 DSH 记录页尚未逐个点击验证。
 
 用量页卡顿修复：原来整页是一个视图，趋势图悬停每动一下都会重建全部柱子、371 个热力图格子（各带悬停提示）和表格，筛选项每次重绘还要扫描 1.7 万条记录。现在趋势图、热力图（改用单块 Canvas）和表格各自独立刷新，筛选项读取时算好一次。用真实数据渲染整页确认布局与数值不变；流畅度未在真实窗口量化测量。
 
@@ -68,6 +70,8 @@ Droppy 插件 0.1.1 补齐收起刘海的常驻额度圆环与百分比，空闲
 | Cline 任务监听 | ✅ 可用 | 按 Cline CLI 源码中的状态枚举实现；本机近两天无会话，未做实时验证 |
 | Pi 命令行任务监听 | ✅ 可用 | 真实会话验证 |
 | PI-Desktop 任务监听 | ✅ 可用 | 真实数据库验证（只读） |
+| DSH 任务监听 | ✅ 可用 | 真实投影缓存验证；运行中、完成与模型 / 项目识别正常 |
+| DSH 使用记录与 tok/s | ✅ 可用 | 本机 34 个会话读取正常；页面用真实数据渲染检查过，未在真实窗口逐个点击 |
 | 完成提示注明工具与模型 | ✅ 可用 | 五个工具的模型字段均已核对 |
 | AI 提问提示（问号弹窗 + 等待回答状态） | ✅ 可用 | 解析已用本机真实的 Claude Code、Codex 会话记录回放验证（Claude 2 次提问全部识别且无误报，Codex 提问识别为非阻塞）；尚未在运行中的应用里由真实提问触发一次实弹；仅支持 Claude Code、Codex |
 | Codex API 额度（Sub2API） | ✅ 可用 | 充值后更新基准；余额超过旧基准时自动纠正，覆盖旧版升级或错过充值；48 项核心与账号隔离检查通过，本机升级后首次查询已将旧基准更新为当前真实余额 |
@@ -84,6 +88,7 @@ Droppy 插件 0.1.1 补齐收起刘海的常驻额度圆环与百分比，空闲
 
 | 日期 | 内容 |
 |---|---|
+| 10-18 | 接入 DSH：任务监听读会话投影缓存（运行中 / 完成、模型、项目、提问），用量页新增“DSH 记录”页（轮次、步数、Tokens、tok/s、首字延迟），不做额度；新增 2 项检查 |
 | 10-18 | 修复 Claude Code 误报运行中：只输入 `/context`、`/compact` 等本地命令或 `!` 命令时，会话日志会写一条用户消息但不会有回复，此前被当成新一轮任务；`/compact` 写下的摘要（`isCompactSummary`）同理；现在忽略这些行，扩充 1 项检查 |
 | 10-18 | 用量页卡顿修复：趋势图悬停不再重建图表，热力图改为单块 Canvas，表格独立刷新，筛选项只算一次 |
 | 10-18 | 额度模块对齐 CC Switch：用量页结构、花费与 tok/s 算法、价格匹配、按天汇总、热力图；额度颜色、倒计时、更新时间、窗口名、两行选择与可调刷新间隔；新增 4 项检查（Sonnet / Haiku 子代理分担价格移植、格式化与用量页） |
@@ -116,6 +121,8 @@ Droppy 插件 0.1.1 补齐收起刘海的常驻额度圆环与百分比，空闲
 按优先级大致排序：
 
 - [ ] 在真实设置窗口逐项点验用量页：请求日志翻页、行详情弹窗、热力图悬停、图表点选与深色模式
+- [ ] 在真实设置窗口点验“DSH 记录”页：时间范围切换、40 条截断提示与长项目名
+- [ ] DSH 提问（`ask_user_question`）真实触发一次，确认问号弹窗与等待状态；本机现有会话没有提问记录
 - [ ] 提问提示覆盖更多来源：Grok、Cline、Pi 目前没有可识别的提问标记；Codex 的阻塞型 `request_user_input`（非 async）等真实记录出现后核对
 - [ ] 用真实提问在运行中的应用里实弹验证一次（Claude Code 触发 `AskUserQuestion`，确认弹窗、等待状态与回答后恢复）
 - [ ] 菜单栏图标由星芒换成液滴，与新应用图标统一
@@ -135,13 +142,13 @@ Droppy 插件 0.1.1 补齐收起刘海的常驻额度圆环与百分比，空闲
 - **未签名与未公证**：没有 Apple Developer ID。别人首次打开需右键“打开”；读取 Claude Code 钥匙串项的回退路径在每次重新编译后仍需授权（主路径走 `security` 工具，不受影响）。
 - **旧钥匙串条目残留**：旧版本的 `cline-oauth` 钥匙串条目因授权绑定旧二进制无法自动导入或删除；不影响使用（Cline 已改用 API Key），可在“钥匙串访问”中手动删除。
 - **Claude 令牌过期靠 `/usage` 兜底**：令牌过期时 Sea Coffee 打开一次 Claude Code 的 `/usage`，CLI 启动时自己续期；若刷新令牌已失效，仍需在终端运行 `claude` 重新登录（2026-09-28 曾有一次后台 `claude -p` 在续期失败后清空了登录，`/usage` 兜底不发提问，但失效时的行为尚未实测）。每次兜底会在 Claude Code 的 `~/.claude/history.jsonl` 留下一行 `/usage`，在 `~/.claude.json` 留下探针目录的项目条目，Sea Coffee 不改这两个文件。屏幕文字随 Claude Code 版本可能变化，识别不到时显示原来的过期提示。
-- **任务监听依赖本地文件格式**：各工具升级改格式后可能识别不到，需要跟进；只识别明确的结束事件和明确的提问工具调用，不判断“等待审批”，AI 在正文里以问句结尾也按普通完成处理。
+- **任务监听依赖本地文件格式**：各工具升级改格式后可能识别不到，需要跟进；只识别明确的结束事件和明确的提问工具调用，不判断“等待审批”，AI 在正文里以问句结尾也按普通完成处理。DSH 的投影缓存是节流写入（每 200 个事件或 5 秒），状态与完成提示最多晚 5 秒，且不区分成功、失败与取消。
 - **提问的等待状态只在 45 分钟内有效**：Claude 提问后超过 45 分钟没有任何事件，会话按规则转为“未知”，紫蓝色等待标记随之消失；Codex 的提问只在提问那一刻提示一次，没有常驻的等待状态。
 
 ## 开发备忘
 
 - 构建与运行：`bash scripts/build-app.sh && open "dist/Sea Coffee.app"`
-- 检查：`swift run IslandChecks`（58 项）、`bash scripts/check-account-isolation.sh`、`bash scripts/check-credentials.sh`
+- 检查：`swift run IslandChecks`（60 项）、`bash scripts/check-account-isolation.sh`、`bash scripts/check-credentials.sh`
 - 静态预览（不读取凭据）：`dist/Sea\ Coffee.app/Contents/MacOS/SeaCoffee --render-preview dist/preview.png` 导出岛的四种状态（运行中、完成、提问、收起），`--render-settings /tmp/settings.png` 导出设置的四个分区，增加 `--dark` 可导出深色版。改界面前先读 `DESIGN.md`。
 - 目录：`Sources/IslandCore` 放与界面无关、可测试的逻辑（各家协议解析、会话状态机、凭据文件、PI-Desktop 数据库读取）；`Sources/SeaCoffee` 放界面与账号接入。
 - 几个关键决定：

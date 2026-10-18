@@ -22,6 +22,8 @@ enum Palette {
     static let clay = accent
     static let silver = adaptive(0x595750, 0xD3D0C7)
     static let lilac = adaptive(0x755AA4, 0xB8A3D5)
+    /// DSH: a cooler blue than Cline's, so the two terminal tools stay apart.
+    static let ice = adaptive(0x3A5E8C, 0x9CB6DC)
     static let warning = adaptive(0x966315, 0xEBC16D)
     /// Quota below 20% left (CC Switch's orange).
     static let low = adaptive(0xC2410C, 0xFB923C)
@@ -52,6 +54,7 @@ enum NotchPalette {
     static let clay = accent
     static let silver = Color(hex: 0xD3D0C7)
     static let lilac = Color(hex: 0xB8A3D5)
+    static let ice = Color(hex: 0x9CB6DC)
     static let attention = Color(hex: 0xA99CEC)
     static let warning = Color(hex: 0xEBC16D)
     static let low = Color(hex: 0xFB923C)

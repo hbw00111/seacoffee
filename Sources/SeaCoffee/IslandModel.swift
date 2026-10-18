@@ -86,6 +86,8 @@ final class IslandModel: ObservableObject {
     @Published var hoverEnabled: Bool
     /// Agents whose local session files are followed; all by default.
     @Published private(set) var watchedAgents: Set<Agent>
+    /// Agents that did not exist when `watchedAgents` was first saved.
+    private static let addedAgents: [Agent] = [.dsh]
     var openSettings: (() -> Void)?
     var geometryChanged: (() -> Void)?
     /// The host owns notification presentation when embedded as a Droppy extension.
@@ -263,7 +265,13 @@ final class IslandModel: ObservableObject {
         reducedMotion = defaults.bool(forKey: "reducedMotion")
         refreshMinutes = Self.refreshChoices.contains(defaults.integer(forKey: "quotaRefreshMinutes")) ? defaults.integer(forKey: "quotaRefreshMinutes") : 5
         hoverEnabled = defaults.object(forKey: "hoverEnabled") as? Bool ?? true
-        watchedAgents = defaults.stringArray(forKey: "watchedAgents").map { Set($0.compactMap(Agent.init(rawValue:))) } ?? Set(Agent.allCases)
+        let storedAgents = defaults.stringArray(forKey: "watchedAgents")
+        watchedAgents = storedAgents.map { Set($0.compactMap(Agent.init(rawValue:))) } ?? Set(Agent.allCases)
+        // A saved list predates agents added later; turn those on once instead of leaving them off.
+        if defaults.integer(forKey: "watchedAgentsVersion") < 1 {
+            if storedAgents != nil { watchedAgents.formUnion(Self.addedAgents) }
+            defaults.set(1, forKey: "watchedAgentsVersion")
+        }
         account.binaryPath = defaults.string(forKey: "codexBinary") ?? ""
         clineAccount.onStatus = { [weak self] text in
             self?.clineMessage = text
@@ -548,8 +556,8 @@ final class IslandModel: ObservableObject {
         case .codex: candidates = ["com.openai.codex", "com.openai.Codex", "com.bigpizzav3.codexplusplus", "com.codexhost.app"]
         case .claude: candidates = ["com.anthropic.claudefordesktop"]
         case .pi: candidates = ["net.aiuo.pi-desktop"]
-        // Grok and Cline run in a terminal; there is no app to bring forward.
-        case .grok, .cline: candidates = []
+        // Grok, Cline and DSH run in a terminal; there is no app to bring forward.
+        case .grok, .cline, .dsh: candidates = []
         }
         return candidates.lazy.compactMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }.first
     }
