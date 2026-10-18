@@ -41,7 +41,9 @@ final class AgentSessionTests {
         s.consumeClaude(claude("user", at: "2026-09-26T03:02:01Z", ["content": "<local-command-stdout>Compacted </local-command-stdout>"]))
         s.consumeClaude(claude("user", at: "2026-09-26T03:02:02Z", ["content": [["type": "text", "text": "<bash-input>ls</bash-input>"]]]))
         s.consumeClaude(claude("user", at: "2026-09-26T03:02:03Z", ["content": "<bash-stdout>a</bash-stdout><bash-stderr></bash-stderr>"]))
-        expectEqual(s.state, .interrupted, "local commands do not start a turn")
+        s.consumeClaude(claude("user", at: "2026-09-26T03:02:04Z", ["content": "This session is being continued from a previous conversation."],
+                               extra: ["isCompactSummary": true, "isVisibleInTranscriptOnly": true]))
+        expectEqual(s.state, .interrupted, "local commands and compact summaries do not start a turn")
         // A prompt-style command is marked running by its first assistant line.
         s.consumeClaude(claude("user", at: "2026-09-26T03:03:00Z", ["content": "<command-name>/review</command-name>"]))
         s.consumeClaude(claude("assistant", at: "2026-09-26T03:03:02Z", ["id": "m3", "content": [["type": "thinking"]]]))

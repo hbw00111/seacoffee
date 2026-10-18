@@ -59,6 +59,8 @@ extension SessionState {
     public mutating func consumeClaude(_ line: Data, sidechain: Bool = false) {
         guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
               sidechain || object["isSidechain"] as? Bool != true, object["isMeta"] as? Bool != true,
+              // `/compact` writes its summary as a user message; it never starts a turn.
+              object["isCompactSummary"] as? Bool != true,
               let time = UsageDecoder.date(object["timestamp"]), time >= updatedAt else { return }
         if let cwd = object["cwd"] as? String, !cwd.isEmpty { project = URL(fileURLWithPath: cwd).lastPathComponent }
         let message = object["message"] as? [String: Any]
