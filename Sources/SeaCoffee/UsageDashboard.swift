@@ -29,9 +29,8 @@ final class UsageDashboardModel: ObservableObject {
     @Published var preparing = false
     private var reportKey: [String] = []
     private var heatmapKey: [String] = []
-    var apps: [String] { dataset.apps }
-    var providers: [String] { dataset.providers }
-    var models: [String] { dataset.models }
+    /// Filter options, computed once per reload: deriving them in `body` scanned every log on each redraw.
+    private(set) var apps: [String] = [], providers: [String] = [], models: [String] = []
 
     func prepare(key: [String], range: UsageRange, filter: UsageFilter) async {
         guard reportKey != key else { return }
@@ -63,11 +62,14 @@ final class UsageDashboardModel: ObservableObject {
         guard !loading else { return }
         loading = true
         defer { loading = false }
-        let result = await Task.detached(priority: .utility) { Swift.Result { try UsageStats.read() } }.value
+        let result = await Task.detached(priority: .utility) {
+            Swift.Result { let data = try UsageStats.read(); return (data, data.apps, data.providers, data.models) }
+        }.value
         guard !Task.isCancelled else { return }
         switch result {
-        case .success(let data):
-            dataset = data; error = nil; updated = Date(); revision += 1
+        case .success(let (data, apps, providers, models)):
+            dataset = data; self.apps = apps; self.providers = providers; self.models = models
+            error = nil; updated = Date(); revision += 1
         case .failure(let failure): error = failure.localizedDescription
         }
         do { history = try await QuotaHistoryStore().read(); historyError = nil }
@@ -124,20 +126,13 @@ struct UsageDashboard: View {
     @State private var tab: UsageTab = .calls
     @State private var period: UsagePeriod = .week
     @State private var range: UsageRange = .week
-    @State private var metric: UsageMetric = .tokens
     @State private var heatMetric: UsageHeatmapMetric = .tokens
-    @State private var table: UsageTable = .logs
-    @State private var statusFilter = 0
-    @State private var page = 0
     @State private var app = allApps
     @State private var provider = allProviders
     @State private var model = allModels
     @State private var quotaProvider = "Codex API"
     @State private var windowID = "wallet"
-    @State private var selectedDate: Date?
     @State private var showMore = false
-    @State private var detail: String?
-    @State private var heatWidth: CGFloat = 0
     var recordingError: String?
 
     private var report: UsageStatsReport { data.prepared.report }
@@ -209,9 +204,6 @@ struct UsageDashboard: View {
         .onChange(of: period) { _, _ in
             if !quotaWindows.contains(where: { $0.0 == windowID }) { windowID = quotaWindows.first?.0 ?? "wallet" }
         }
-        .onChange(of: reportKey) { _, _ in selectedDate = nil; page = 0; detail = nil }
-        .onChange(of: table) { _, _ in page = 0; detail = nil }
-        .onChange(of: statusFilter) { _, _ in page = 0 }
         .onChange(of: data.history.count) { _, _ in
             if !quotaProviders.contains(quotaProvider) { quotaProvider = quotaProviders.first ?? "Codex API" }
             if !quotaWindows.contains(where: { $0.0 == windowID }) { windowID = quotaWindows.first?.0 ?? "wallet" }
@@ -243,10 +235,12 @@ struct UsageDashboard: View {
                            detail: "该筛选范围没有调用记录。可扩大时间范围，或把应用、供应商、模型切回“全部”。",
                            loading: false)
             } else {
-                trend
+                UsageTrendCard(report: report, rangeLabel: range.rawValue)
             }
-            if (data.updated != nil || data.error != nil) { heatmapCard }
-            if totals.requests > 0 { tables }
+            if (data.updated != nil || data.error != nil) {
+                UsageHeatmapCard(heatmap: data.heatmap, loading: data.loading, metric: $heatMetric)
+            }
+            if totals.requests > 0 { UsageTablesCard(prepared: data.prepared, resetKey: reportKey) }
             VStack(alignment: .leading, spacing: 4) {
                 Text("来源：本机 CC Switch 的请求日志与按天汇总（明细保留约 30 天，更早的按天合并）。金额按 CC Switch 的价格表计算，未定价的请求不计入，不等同于账单。")
                     .font(.system(size: 10)).foregroundStyle(Palette.dim)
@@ -295,169 +289,183 @@ struct UsageDashboard: View {
         .padding(14).glassCard(radius: 12).padding(.trailing, 6)
     }
 
-    // MARK: 趋势
-
-    private var trend: some View {
-        let buckets = report.buckets
-        let unit: Calendar.Component = report.hourly ? .hour : .day
-        return VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("使用趋势 · \(range.rawValue)").font(.system(size: 14, weight: .semibold)).foregroundStyle(Palette.text)
-                Spacer()
-                GlassSegmented(options: UsageMetric.allCases, selection: $metric) { $0.rawValue }.frame(width: 210)
-            }
-            Chart {
-                ForEach(buckets) { bucket in
-                    let x = PlottableValue.value("时间", bucket.start, unit: unit)
-                    switch metric {
-                    case .tokens:
-                        BarMark(x: x, y: .value("Tokens", bucket.totals.freshInput)).foregroundStyle(by: .value("类别", "新增输入"))
-                        BarMark(x: x, y: .value("Tokens", bucket.totals.output)).foregroundStyle(by: .value("类别", "输出"))
-                        BarMark(x: x, y: .value("Tokens", bucket.totals.cacheWrite)).foregroundStyle(by: .value("类别", "缓存创建"))
-                        BarMark(x: x, y: .value("Tokens", bucket.totals.cacheRead)).foregroundStyle(by: .value("类别", "缓存命中"))
-                    case .requests:
-                        BarMark(x: x, y: .value("请求", bucket.totals.requests)).foregroundStyle(Palette.blue).cornerRadius(2)
-                    case .cost:
-                        BarMark(x: x, y: .value("成本", bucket.totals.cost)).foregroundStyle(Palette.mint).cornerRadius(2)
-                    }
-                }
-                if let selectedDate { RuleMark(x: .value("选择时间", selectedDate, unit: unit)).foregroundStyle(Palette.dim.opacity(0.5)) }
-            }
-            .chartForegroundStyleScale(["新增输入": Palette.blue, "输出": Palette.mint, "缓存创建": Palette.warning, "缓存命中": Palette.lilac])
-            .chartLegend(metric == .tokens ? .visible : .hidden)
-            .chartXSelection(value: $selectedDate)
-            .chartXAxis {
-                if report.hourly {
-                    AxisMarks(values: .stride(by: .hour, count: 4)) { _ in
-                        AxisGridLine(); AxisValueLabel(format: .dateTime.hour(.twoDigits(amPM: .omitted)))
-                    }
-                } else {
-                    AxisMarks { _ in AxisGridLine(); AxisValueLabel(format: .dateTime.month().day()) }
-                }
-            }
-            .chartYAxis {
-                AxisMarks(position: .leading) { value in
-                    AxisGridLine()
-                    AxisValueLabel {
-                        if let number = value.as(Double.self) {
-                            Text(metric == .tokens ? UsageFormat.tokens(number)
-                                 : metric == .requests ? UsageFormat.tokens(number) : UsageFormat.usd(number, decimals: number < 1 ? 2 : 0))
-                        }
-                    }
-                }
-            }
-            .frame(height: 190)
-            Group {
-                if let selectedDate, let bucket = buckets.min(by: { abs($0.start.timeIntervalSince(selectedDate)) < abs($1.start.timeIntervalSince(selectedDate)) }) {
-                    Text((report.hourly ? timeFull.string(from: bucket.start).dropLast(3) : Substring(dayFormat.string(from: bucket.start)))
-                         + " · \(bucket.totals.requests) 次 · \(UsageFormat.tokens(bucket.totals.realTokens)) Tokens · \(UsageFormat.usd(bucket.totals.cost, decimals: 4))")
-                } else {
-                    Text("点选图表查看明细 · " + (report.hourly ? "按小时统计" : "按天统计"))
-                }
-            }.font(.system(size: 11)).foregroundStyle(Palette.dim).monospacedDigit()
-        }.padding(18).glassCard()
-    }
-
-    // MARK: 热力图
-
-    private static let heatSpacing: CGFloat = 2
-    private func heatColor(_ day: UsageHeatmap.Day) -> Color { heatColor(level: day.level, future: day.future) }
-    private func heatColor(level: Int, future: Bool = false) -> Color {
-        if future { return Palette.subtle.opacity(0.35) }
-        switch level {
-        case 0: return Palette.subtle
-        case 1: return Palette.mint.opacity(0.3)
-        case 2: return Palette.mint.opacity(0.5)
-        case 3: return Palette.mint.opacity(0.75)
-        default: return Palette.mint
+    private func filterMenu(_ title: String, selection: Binding<String>, all: String, values: [String], label: @escaping (String) -> String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title).font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.dim)
+            menuPicker(title, selection: selection, options: [""] + values) { $0.isEmpty ? all : label($0) }
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
-    private func heatValue(_ value: Double) -> String {
-        switch heatMetric {
-        case .tokens: return UsageFormat.tokens(value) + " Tokens"
-        case .requests: return "\(Int(value)) 次请求"
-        case .cost: return UsageFormat.usd(value, decimals: 4)
-        }
-    }
-    private var heatmapCard: some View {
+
+    // MARK: 额度趋势
+
+    private var quotaContent: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("用量热力图").font(.system(size: 14, weight: .semibold)).foregroundStyle(Palette.text)
-                Spacer()
-                GlassSegmented(options: UsageHeatmapMetric.allCases, selection: $heatMetric) { $0.rawValue }.frame(width: 210)
-            }
-            if let weeks = data.heatmap?.weeks, !weeks.isEmpty {
-                heatGrid(weeks)
+            if let error = recordingError ?? data.historyError { notice(error, warning: true) }
+            if data.history.isEmpty {
+                emptyState(icon: "chart.xyaxis.line", title: "额度历史正在积累",
+                           detail: "额度历史从本次更新开始记录。账号查询成功后会出现第一个数据点；至少两个数据点才能观察趋势。",
+                           loading: data.loading)
             } else {
-                Text(data.loading ? "正在读取…" : "暂无数据").font(.system(size: 11)).foregroundStyle(Palette.dim)
-                    .frame(maxWidth: .infinity, minHeight: 100)
-            }
-            HStack(spacing: 4) {
-                Text("少").font(.system(size: 10)).foregroundStyle(Palette.dim)
-                ForEach(0..<5, id: \.self) { level in
-                    RoundedRectangle(cornerRadius: 2.5).fill(heatColor(level: level))
-                        .frame(width: 10, height: 10)
+                HStack(spacing: 10) {
+                    menuPicker("账号", selection: $quotaProvider, options: quotaProviders) { $0 }
+                    menuPicker("周期", selection: $windowID, options: quotaWindows.map(\.0)) { id in
+                        quotaWindows.first(where: { $0.0 == id })?.1 ?? id
+                    }
                 }
-                Text("多").font(.system(size: 10)).foregroundStyle(Palette.dim)
+                if let latest = history.last {
+                    HStack(spacing: 10) {
+                        metricCard("当前余额", value: latest.balance.map(money) ?? "—", detail: quotaProvider, tint: Palette.mint)
+                        metricCard("最近剩余额度", value: latest.windows.first(where: { $0.id == windowID }).map { "\(Int($0.percent.rounded()))%" } ?? "—", detail: "最近一次成功查询", tint: Palette.accent)
+                    }
+                    quotaChart
+                    if history.contains(where: { $0.balance != nil }) {
+                        VStack(alignment: .leading, spacing: 14) {
+                            Text("余额趋势 · USD").font(.system(size: 14, weight: .semibold)).foregroundStyle(Palette.text)
+                            Chart {
+                                ForEach(segmentedHistory, id: \.point.id) { sample in
+                                    let point = sample.point
+                                    if let balance = point.balance {
+                                        LineMark(x: .value("时间", point.date), y: .value("余额", balance), series: .value("连续采样", sample.segment))
+                                            .foregroundStyle(Palette.mint)
+                                        PointMark(x: .value("时间", point.date), y: .value("余额", balance))
+                                            .foregroundStyle(Palette.mint).symbolSize(14)
+                                    }
+                                }
+                            }.frame(height: 160)
+                            Text("每个点是一次成功查询的余额，不把余额下降推算为账单。")
+                                .font(.system(size: 11)).foregroundStyle(Palette.dim)
+                        }.padding(16).glassCard()
+                    }
+                    Text("最近采样 · " + latest.date.formatted(date: .abbreviated, time: .shortened))
+                        .font(.system(size: 10)).foregroundStyle(Palette.dim)
+                } else { notice("所选时间范围没有额度快照。", warning: false) }
             }
-        }.padding(18).glassCard()
+            Text("来源：Sea Coffee 的成功额度查询，每 15 分钟保留最新快照，保留约 30 天。充值、重置和账号切换均可能使曲线上升；曲线表示额度变化，不换算成消费账单。")
+                .font(.system(size: 10)).foregroundStyle(Palette.dim)
+        }
     }
-    private func heatCell(_ weeks: [[UsageHeatmap.Day]]) -> CGFloat {
-        let count = CGFloat(weeks.count)
-        let width = heatWidth > 0 ? heatWidth : 600
-        return max(8, min(11, ((width - (count - 1) * Self.heatSpacing) / count).rounded(.down)))
+
+    // Never interpolate across long offline gaps or a changed quota window.
+    private var segmentedHistory: [(point: QuotaHistoryPoint, segment: Int)] {
+        var segment = 0
+        var previous: QuotaHistoryPoint?
+        return history.map { point in
+            if let previous {
+                let old = previous.windows.first { $0.id == windowID }
+                let new = point.windows.first { $0.id == windowID }
+                if point.date.timeIntervalSince(previous.date) > 1800
+                    || old?.resetsAt != new?.resetsAt || old?.limit != new?.limit
+                    || (previous.balance == nil) != (point.balance == nil) { segment += 1 }
+            }
+            previous = point
+            return (point, segment)
+        }
     }
-    private func heatGrid(_ weeks: [[UsageHeatmap.Day]]) -> some View {
-        let calendar = Calendar.current
-        let gap = Self.heatSpacing
-        let cell = heatCell(weeks)
-        let width = heatWidth > 0 ? heatWidth : 600
-        let grid = HStack(alignment: .top, spacing: gap) {
-            ForEach(Array(weeks.enumerated()), id: \.offset) { _, week in
-                VStack(spacing: gap) {
-                    ZStack(alignment: .leading) {
-                        Color.clear.frame(width: cell, height: 12)
-                        if let first = week.first(where: { calendar.component(.day, from: $0.date) == 1 }) {
-                            Text(monthFormat.string(from: first.date)).font(.system(size: 9)).foregroundStyle(Palette.dim)
-                                .fixedSize().frame(width: cell, alignment: .leading)
-                        }
+
+    private var quotaChart: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("剩余额度趋势").font(.system(size: 14, weight: .semibold)).foregroundStyle(Palette.text)
+            Chart {
+                ForEach(segmentedHistory, id: \.point.id) { sample in
+                    let point = sample.point
+                    if let window = point.windows.first(where: { $0.id == windowID }) {
+                        PointMark(x: .value("时间", point.date), y: .value("剩余 %", window.percent)).foregroundStyle(Palette.accent).symbolSize(14)
+                        LineMark(x: .value("时间", point.date), y: .value("剩余 %", window.percent),
+                                 series: .value("连续采样", sample.segment))
+                            .foregroundStyle(Palette.accent)
                     }
-                    ForEach(week) { day in
-                        RoundedRectangle(cornerRadius: 2.5, style: .continuous).fill(heatColor(day))
-                            .frame(width: cell, height: cell)
-                            .help(day.future ? dayFormat.string(from: day.date) : dayFormat.string(from: day.date) + "  " + heatValue(day.value))
-                    }
+                }
+            }.chartYScale(domain: 0...100).frame(height: 180)
+            if history.count < 2 { Text("已记录首个快照，积累更多数据后显示趋势。").font(.system(size: 11)).foregroundStyle(Palette.dim) }
+        }.padding(16).glassCard()
+    }
+
+    private func metricCard(_ title: String, value: String, detail: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Circle().fill(tint).frame(width: 6, height: 6)
+                Text(title).font(.system(size: 11)).foregroundStyle(Palette.dim)
+            }
+            Text(value).font(.system(size: 26, weight: .medium)).monospacedDigit().foregroundStyle(Palette.text).lineLimit(1).minimumScaleFactor(0.65)
+            Text(detail).font(.system(size: 10)).foregroundStyle(Palette.dim).lineLimit(1)
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(18).glassCard()
+    }
+    private func notice(_ text: String, warning: Bool) -> some View {
+        Label(text, systemImage: warning ? "exclamationmark.circle" : "chart.xyaxis.line")
+            .font(.system(size: 11)).foregroundStyle(warning ? Palette.warning : Palette.dim)
+            .fixedSize(horizontal: false, vertical: true).padding(14).frame(maxWidth: .infinity, alignment: .leading).glassCard(radius: 12)
+    }
+    private func emptyState(icon: String?, title: String, detail: String, loading: Bool) -> some View {
+        VStack(spacing: 8) {
+            if loading {
+                CometSpinner(size: 22, tint: Palette.accent)
+            } else if let icon {
+                Image(systemName: icon).font(.system(size: 22)).foregroundStyle(Palette.dim)
+            }
+            Text(title).font(.system(size: 14, weight: .semibold)).foregroundStyle(Palette.text)
+            if !detail.isEmpty {
+                Text(detail).font(.system(size: 11)).foregroundStyle(Palette.dim)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 118)
+        .padding(16)
+        .glassCard(radius: 12)
+    }
+    private func money(_ n: Double) -> String { n.formatted(.currency(code: "USD").precision(.fractionLength(2...4))) }
+}
+private func menuPicker<Value: Hashable>(_ title: String, selection: Binding<Value>, options: [Value], label: @escaping (Value) -> String) -> some View {
+    Menu {
+        ForEach(Array(options.enumerated()), id: \.offset) { _, option in
+            Button {
+                selection.wrappedValue = option
+            } label: {
+                HStack {
+                    Text(label(option))
+                    if option == selection.wrappedValue { Image(systemName: "checkmark") }
                 }
             }
         }
-        return Group {
-            if CGFloat(weeks.count) * (cell + gap) > width + 1 {
-                ScrollView(.horizontal, showsIndicators: false) { grid }
-                    .defaultScrollAnchor(.trailing)
-            } else {
-                grid
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: 12 + CGFloat(7) * (cell + gap) + 4)
-        .background(GeometryReader { proxy in
-            Color.clear
-                .onAppear { heatWidth = proxy.size.width }
-                .onChange(of: proxy.size.width) { _, new in heatWidth = new }
-        })
+    } label: {
+        Text(label(selection.wrappedValue)).lineLimit(1)
     }
+    .menuStyle(.borderlessButton)
+    .menuIndicator(.hidden)
+    .foregroundStyle(Palette.text)
+    .tint(Palette.text)
+    .padding(.leading, 10).padding(.trailing, 28)
+    .frame(maxWidth: .infinity, minHeight: 32, maxHeight: 32, alignment: .leading)
+    .background(Palette.raised, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Palette.border, lineWidth: 0.65))
+    .overlay(alignment: .trailing) {
+        Image(systemName: "chevron.up.chevron.down").font(.system(size: 8, weight: .semibold))
+            .foregroundStyle(Palette.dim).padding(.trailing, 10).allowsHitTesting(false).accessibilityHidden(true)
+    }
+    .accessibilityLabel(title)
+}
 
-    // MARK: 表格
+/// Paging, the status filter and the detail popover redraw only the tables.
+private struct UsageTablesCard: View {
+    let prepared: UsagePrepared
+    let resetKey: [String]
+    @State private var table: UsageTable = .logs
+    @State private var statusFilter = 0
+    @State private var page = 0
+    @State private var detail: String?
 
-    private var tables: some View {
+    var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             GlassSegmented(options: UsageTable.allCases, selection: $table) { $0.rawValue }.frame(maxWidth: 300)
             switch table {
             case .logs: logTable
-            case .providers: groupTable(report.providers, providers: true)
-            case .models: groupTable(report.models, providers: false)
+            case .providers: groupTable(prepared.report.providers, providers: true)
+            case .models: groupTable(prepared.report.models, providers: false)
             }
         }.padding(18).glassCard()
+        .onChange(of: resetKey) { _, _ in page = 0; detail = nil }
+        .onChange(of: table) { _, _ in page = 0; detail = nil }
+        .onChange(of: statusFilter) { _, _ in page = 0 }
     }
 
     private func pager(count: Int) -> some View {
@@ -481,7 +489,7 @@ struct UsageDashboard: View {
     private enum Col { static let time: CGFloat = 92, model: CGFloat = 158, number: CGFloat = 56, cost: CGFloat = 70, speed: CGFloat = 70 }
 
     private var logTable: some View {
-        let logs = data.prepared.logs(status: statusFilter == 0 ? nil : statusFilter)
+        let logs = prepared.logs(status: statusFilter == 0 ? nil : statusFilter)
         return VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("状态码").font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.dim)
@@ -635,158 +643,246 @@ struct UsageDashboard: View {
         }.padding(.vertical, header ? 0 : 7)
     }
 
-    private func filterMenu(_ title: String, selection: Binding<String>, all: String, values: [String], label: @escaping (String) -> String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(title).font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.dim)
-            menuPicker(title, selection: selection, options: [""] + values) { $0.isEmpty ? all : label($0) }
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
+}
 
-    // MARK: 额度趋势
+// MARK: 趋势
 
-    private var quotaContent: some View {
+/// Hover lives here, outside the chart: moving the pointer redraws the rule and the readout,
+/// never the bars.
+private final class TrendHover: ObservableObject {
+    @Published var bucket: UsageBucket?
+    @Published var x: CGFloat?
+}
+
+private struct UsageTrendCard: View {
+    let report: UsageStatsReport
+    let rangeLabel: String
+    @State private var metric: UsageMetric = .tokens
+    @StateObject private var hover = TrendHover()
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            if let error = recordingError ?? data.historyError { notice(error, warning: true) }
-            if data.history.isEmpty {
-                emptyState(icon: "chart.xyaxis.line", title: "额度历史正在积累",
-                           detail: "额度历史从本次更新开始记录。账号查询成功后会出现第一个数据点；至少两个数据点才能观察趋势。",
-                           loading: data.loading)
+            HStack {
+                Text("使用趋势 · \(rangeLabel)").font(.system(size: 14, weight: .semibold)).foregroundStyle(Palette.text)
+                Spacer()
+                GlassSegmented(options: UsageMetric.allCases, selection: $metric) { $0.rawValue }.frame(width: 210)
+            }
+            TrendChart(buckets: report.buckets, hourly: report.hourly, metric: metric, hover: hover).frame(height: 190)
+            TrendReadout(hover: hover, hourly: report.hourly)
+        }
+        .padding(18).glassCard()
+        .onChange(of: report.start) { _, _ in hover.bucket = nil; hover.x = nil }
+    }
+}
+
+private struct TrendChart: View {
+    let buckets: [UsageBucket]
+    let hourly: Bool
+    let metric: UsageMetric
+    /// Written on hover but not observed, so the marks are built once per data or metric change.
+    let hover: TrendHover
+
+    var body: some View {
+        let unit: Calendar.Component = hourly ? .hour : .day
+        Chart {
+            ForEach(buckets) { bucket in
+                let x = PlottableValue.value("时间", bucket.start, unit: unit)
+                switch metric {
+                case .tokens:
+                    BarMark(x: x, y: .value("Tokens", bucket.totals.freshInput)).foregroundStyle(by: .value("类别", "新增输入"))
+                    BarMark(x: x, y: .value("Tokens", bucket.totals.output)).foregroundStyle(by: .value("类别", "输出"))
+                    BarMark(x: x, y: .value("Tokens", bucket.totals.cacheWrite)).foregroundStyle(by: .value("类别", "缓存创建"))
+                    BarMark(x: x, y: .value("Tokens", bucket.totals.cacheRead)).foregroundStyle(by: .value("类别", "缓存命中"))
+                case .requests:
+                    BarMark(x: x, y: .value("请求", bucket.totals.requests)).foregroundStyle(Palette.blue).cornerRadius(2)
+                case .cost:
+                    BarMark(x: x, y: .value("成本", bucket.totals.cost)).foregroundStyle(Palette.mint).cornerRadius(2)
+                }
+            }
+        }
+        .chartForegroundStyleScale(["新增输入": Palette.blue, "输出": Palette.mint, "缓存创建": Palette.warning, "缓存命中": Palette.lilac])
+        .chartLegend(metric == .tokens ? .visible : .hidden)
+        .chartXAxis {
+            if hourly {
+                AxisMarks(values: .stride(by: .hour, count: 4)) { _ in
+                    AxisGridLine(); AxisValueLabel(format: .dateTime.hour(.twoDigits(amPM: .omitted)))
+                }
             } else {
-                HStack(spacing: 10) {
-                    menuPicker("账号", selection: $quotaProvider, options: quotaProviders) { $0 }
-                    menuPicker("周期", selection: $windowID, options: quotaWindows.map(\.0)) { id in
-                        quotaWindows.first(where: { $0.0 == id })?.1 ?? id
+                AxisMarks { _ in AxisGridLine(); AxisValueLabel(format: .dateTime.month().day()) }
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading) { value in
+                AxisGridLine()
+                AxisValueLabel {
+                    if let number = value.as(Double.self) {
+                        Text(metric == .cost ? UsageFormat.usd(number, decimals: number < 1 ? 2 : 0) : UsageFormat.tokens(number))
                     }
                 }
-                if let latest = history.last {
-                    HStack(spacing: 10) {
-                        metricCard("当前余额", value: latest.balance.map(money) ?? "—", detail: quotaProvider, tint: Palette.mint)
-                        metricCard("最近剩余额度", value: latest.windows.first(where: { $0.id == windowID }).map { "\(Int($0.percent.rounded()))%" } ?? "—", detail: "最近一次成功查询", tint: Palette.accent)
-                    }
-                    quotaChart
-                    if history.contains(where: { $0.balance != nil }) {
-                        VStack(alignment: .leading, spacing: 14) {
-                            Text("余额趋势 · USD").font(.system(size: 14, weight: .semibold)).foregroundStyle(Palette.text)
-                            Chart {
-                                ForEach(segmentedHistory, id: \.point.id) { sample in
-                                    let point = sample.point
-                                    if let balance = point.balance {
-                                        LineMark(x: .value("时间", point.date), y: .value("余额", balance), series: .value("连续采样", sample.segment))
-                                            .foregroundStyle(Palette.mint)
-                                        PointMark(x: .value("时间", point.date), y: .value("余额", balance))
-                                            .foregroundStyle(Palette.mint).symbolSize(14)
-                                    }
-                                }
-                            }.frame(height: 160)
-                            Text("每个点是一次成功查询的余额，不把余额下降推算为账单。")
-                                .font(.system(size: 11)).foregroundStyle(Palette.dim)
-                        }.padding(16).glassCard()
-                    }
-                    Text("最近采样 · " + latest.date.formatted(date: .abbreviated, time: .shortened))
-                        .font(.system(size: 10)).foregroundStyle(Palette.dim)
-                } else { notice("所选时间范围没有额度快照。", warning: false) }
             }
-            Text("来源：Sea Coffee 的成功额度查询，每 15 分钟保留最新快照，保留约 30 天。充值、重置和账号切换均可能使曲线上升；曲线表示额度变化，不换算成消费账单。")
-                .font(.system(size: 10)).foregroundStyle(Palette.dim)
+        }
+        .chartOverlay { proxy in
+            GeometryReader { geometry in
+                let plot = proxy.plotFrame.map { geometry[$0] } ?? .zero
+                ZStack(alignment: .topLeading) {
+                    Rectangle().fill(.clear).contentShape(Rectangle())
+                        .onContinuousHover { phase in
+                            guard case .active(let point) = phase, plot.contains(point),
+                                  let date: Date = proxy.value(atX: point.x - plot.minX),
+                                  let nearest = nearest(to: date, unit: unit) else {
+                                hover.bucket = nil; hover.x = nil; return
+                            }
+                            guard nearest.id != hover.bucket?.id else { return }
+                            let end = Calendar.current.date(byAdding: unit, value: 1, to: nearest.start) ?? nearest.start
+                            if let start = proxy.position(forX: nearest.start), let finish = proxy.position(forX: end) {
+                                hover.x = plot.minX + (start + finish) / 2
+                            }
+                            hover.bucket = nearest
+                        }
+                    TrendRule(hover: hover, plot: plot)
+                }
+            }
         }
     }
 
-    // Never interpolate across long offline gaps or a changed quota window.
-    private var segmentedHistory: [(point: QuotaHistoryPoint, segment: Int)] {
-        var segment = 0
-        var previous: QuotaHistoryPoint?
-        return history.map { point in
-            if let previous {
-                let old = previous.windows.first { $0.id == windowID }
-                let new = point.windows.first { $0.id == windowID }
-                if point.date.timeIntervalSince(previous.date) > 1800
-                    || old?.resetsAt != new?.resetsAt || old?.limit != new?.limit
-                    || (previous.balance == nil) != (point.balance == nil) { segment += 1 }
-            }
-            previous = point
-            return (point, segment)
+    /// The bucket whose interval contains the pointer (bars span their whole hour or day).
+    private func nearest(to date: Date, unit: Calendar.Component) -> UsageBucket? {
+        let index = buckets.lastIndex { $0.start <= date } ?? 0
+        return buckets.indices.contains(index) ? buckets[index] : nil
+    }
+}
+
+private struct TrendRule: View {
+    @ObservedObject var hover: TrendHover
+    let plot: CGRect
+    var body: some View {
+        if let x = hover.x {
+            Rectangle().fill(Palette.dim.opacity(0.5)).frame(width: 1, height: plot.height)
+                .offset(x: x - 0.5, y: plot.minY).allowsHitTesting(false)
         }
     }
+}
 
-    private var quotaChart: some View {
+private struct TrendReadout: View {
+    @ObservedObject var hover: TrendHover
+    let hourly: Bool
+    var body: some View {
+        Group {
+            if let bucket = hover.bucket {
+                Text((hourly ? timeFull.string(from: bucket.start).dropLast(3) : Substring(dayFormat.string(from: bucket.start)))
+                     + " · \(bucket.totals.requests) 次 · \(UsageFormat.tokens(bucket.totals.realTokens)) Tokens · \(UsageFormat.usd(bucket.totals.cost, decimals: 4))")
+            } else {
+                Text("悬停图表查看明细 · " + (hourly ? "按小时统计" : "按天统计"))
+            }
+        }.font(.system(size: 11)).foregroundStyle(Palette.dim).monospacedDigit()
+    }
+}
+
+// MARK: 热力图
+
+private struct UsageHeatmapCard: View {
+    let heatmap: UsageHeatmap?
+    let loading: Bool
+    @Binding var metric: UsageHeatmapMetric
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("剩余额度趋势").font(.system(size: 14, weight: .semibold)).foregroundStyle(Palette.text)
-            Chart {
-                ForEach(segmentedHistory, id: \.point.id) { sample in
-                    let point = sample.point
-                    if let window = point.windows.first(where: { $0.id == windowID }) {
-                        PointMark(x: .value("时间", point.date), y: .value("剩余 %", window.percent)).foregroundStyle(Palette.accent).symbolSize(14)
-                        LineMark(x: .value("时间", point.date), y: .value("剩余 %", window.percent),
-                                 series: .value("连续采样", sample.segment))
-                            .foregroundStyle(Palette.accent)
-                    }
+            HStack {
+                Text("用量热力图").font(.system(size: 14, weight: .semibold)).foregroundStyle(Palette.text)
+                Spacer()
+                GlassSegmented(options: UsageHeatmapMetric.allCases, selection: $metric) { $0.rawValue }.frame(width: 210)
+            }
+            if let weeks = heatmap?.weeks, !weeks.isEmpty {
+                HeatmapGrid(weeks: weeks, metric: metric)
+            } else {
+                Text(loading ? "正在读取…" : "暂无数据").font(.system(size: 11)).foregroundStyle(Palette.dim)
+                    .frame(maxWidth: .infinity, minHeight: 100)
+            }
+            HStack(spacing: 4) {
+                Text("少").font(.system(size: 10)).foregroundStyle(Palette.dim)
+                ForEach(0..<5, id: \.self) { level in
+                    RoundedRectangle(cornerRadius: 2.5).fill(HeatmapGrid.color(level: level)).frame(width: 10, height: 10)
                 }
-            }.chartYScale(domain: 0...100).frame(height: 180)
-            if history.count < 2 { Text("已记录首个快照，积累更多数据后显示趋势。").font(.system(size: 11)).foregroundStyle(Palette.dim) }
-        }.padding(16).glassCard()
+                Text("多").font(.system(size: 10)).foregroundStyle(Palette.dim)
+            }
+        }.padding(18).glassCard()
+    }
+}
+
+/// One Canvas instead of 371 cells with their own tooltips; hover redraws only this view.
+private struct HeatmapGrid: View {
+    let weeks: [[UsageHeatmap.Day]]
+    let metric: UsageHeatmapMetric
+    @State private var width: CGFloat = 0
+    @State private var hovered: UsageHeatmap.Day?
+    private static let gap: CGFloat = 2, labelHeight: CGFloat = 14
+
+    static func color(level: Int, future: Bool = false) -> Color {
+        if future { return Palette.subtle.opacity(0.35) }
+        switch level {
+        case 0: return Palette.subtle
+        case 1: return Palette.mint.opacity(0.3)
+        case 2: return Palette.mint.opacity(0.5)
+        case 3: return Palette.mint.opacity(0.75)
+        default: return Palette.mint
+        }
     }
 
-    private func menuPicker<Value: Hashable>(_ title: String, selection: Binding<Value>, options: [Value], label: @escaping (Value) -> String) -> some View {
-        Menu {
-            ForEach(Array(options.enumerated()), id: \.offset) { _, option in
-                Button {
-                    selection.wrappedValue = option
-                } label: {
-                    HStack {
-                        Text(label(option))
-                        if option == selection.wrappedValue { Image(systemName: "checkmark") }
-                    }
+    var body: some View {
+        let count = CGFloat(weeks.count)
+        let available = width > 0 ? width : 600
+        let cell = max(8, min(11, ((available - (count - 1) * Self.gap) / count).rounded(.down)))
+        let step = cell + Self.gap
+        let gridWidth = count * step - Self.gap
+        let height = Self.labelHeight + 7 * step - Self.gap
+        let canvas = Canvas { context, _ in
+            let calendar = Calendar.current
+            for (column, week) in weeks.enumerated() {
+                let x = CGFloat(column) * step
+                if let first = week.first(where: { calendar.component(.day, from: $0.date) == 1 }) {
+                    context.draw(Text(monthFormat.string(from: first.date)).font(.system(size: 9)).foregroundColor(Palette.dim),
+                                 at: CGPoint(x: x, y: 0), anchor: .topLeading)
+                }
+                for (row, day) in week.enumerated() {
+                    let rect = CGRect(x: x, y: Self.labelHeight + CGFloat(row) * step, width: cell, height: cell)
+                    let path = Path(roundedRect: rect, cornerRadius: 2.5, style: .continuous)
+                    context.fill(path, with: .color(Self.color(level: day.level, future: day.future)))
+                    if day.id == hovered?.id { context.stroke(path, with: .color(Palette.text.opacity(0.6)), lineWidth: 1) }
                 }
             }
-        } label: {
-            Text(label(selection.wrappedValue)).lineLimit(1)
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .foregroundStyle(Palette.text)
-        .tint(Palette.text)
-        .padding(.leading, 10).padding(.trailing, 28)
-        .frame(maxWidth: .infinity, minHeight: 32, maxHeight: 32, alignment: .leading)
-        .background(Palette.raised, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Palette.border, lineWidth: 0.65))
-        .overlay(alignment: .trailing) {
-            Image(systemName: "chevron.up.chevron.down").font(.system(size: 8, weight: .semibold))
-                .foregroundStyle(Palette.dim).padding(.trailing, 10).allowsHitTesting(false).accessibilityHidden(true)
+        .frame(width: gridWidth, height: height)
+        .contentShape(Rectangle())
+        .onContinuousHover { phase in
+            guard case .active(let point) = phase else { hovered = nil; return }
+            let column = Int(point.x / step), row = Int((point.y - Self.labelHeight) / step)
+            let day = weeks.indices.contains(column) && point.y >= Self.labelHeight && (0..<7).contains(row) ? weeks[column][row] : nil
+            if day?.id != hovered?.id { hovered = day }
         }
-        .accessibilityLabel(title)
-    }
-    private func metricCard(_ title: String, value: String, detail: String, tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Circle().fill(tint).frame(width: 6, height: 6)
-                Text(title).font(.system(size: 11)).foregroundStyle(Palette.dim)
+        return VStack(alignment: .leading, spacing: 6) {
+            Group {
+                if gridWidth > available + 1 {
+                    ScrollView(.horizontal, showsIndicators: false) { canvas }.defaultScrollAnchor(.trailing)
+                } else {
+                    canvas
+                }
             }
-            Text(value).font(.system(size: 26, weight: .medium)).monospacedDigit().foregroundStyle(Palette.text).lineLimit(1).minimumScaleFactor(0.65)
-            Text(detail).font(.system(size: 10)).foregroundStyle(Palette.dim).lineLimit(1)
-        }.frame(maxWidth: .infinity, alignment: .leading).padding(18).glassCard()
-    }
-    private func notice(_ text: String, warning: Bool) -> some View {
-        Label(text, systemImage: warning ? "exclamationmark.circle" : "chart.xyaxis.line")
-            .font(.system(size: 11)).foregroundStyle(warning ? Palette.warning : Palette.dim)
-            .fixedSize(horizontal: false, vertical: true).padding(14).frame(maxWidth: .infinity, alignment: .leading).glassCard(radius: 12)
-    }
-    private func emptyState(icon: String?, title: String, detail: String, loading: Bool) -> some View {
-        VStack(spacing: 8) {
-            if loading {
-                CometSpinner(size: 22, tint: Palette.accent)
-            } else if let icon {
-                Image(systemName: icon).font(.system(size: 22)).foregroundStyle(Palette.dim)
-            }
-            Text(title).font(.system(size: 14, weight: .semibold)).foregroundStyle(Palette.text)
-            if !detail.isEmpty {
-                Text(detail).font(.system(size: 11)).foregroundStyle(Palette.dim)
-                    .multilineTextAlignment(.center)
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(GeometryReader { proxy in
+                Color.clear
+                    .onAppear { width = proxy.size.width }
+                    .onChange(of: proxy.size.width) { _, new in if abs(new - width) > 0.5 { width = new } }
+            })
+            Text(hovered.map { dayFormat.string(from: $0.date) + ($0.future ? "" : "  " + value($0.value)) } ?? "悬停查看每天的用量")
+                .font(.system(size: 10)).foregroundStyle(Palette.dim).monospacedDigit()
         }
-        .frame(maxWidth: .infinity, minHeight: 118)
-        .padding(16)
-        .glassCard(radius: 12)
     }
-    private func money(_ n: Double) -> String { n.formatted(.currency(code: "USD").precision(.fractionLength(2...4))) }
+
+    private func value(_ amount: Double) -> String {
+        switch metric {
+        case .tokens: return UsageFormat.tokens(amount) + " Tokens"
+        case .requests: return "\(Int(amount)) 次请求"
+        case .cost: return UsageFormat.usd(amount, decimals: 4)
+        }
+    }
 }
