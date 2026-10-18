@@ -49,10 +49,11 @@ extension SessionState {
         question = Question(id: id, askedAt: time, blocking: blocking)
     }
 
-    /// Claude Code: `~/.claude/projects/<project>/<session>.jsonl`.
-    public mutating func consumeClaude(_ line: Data) {
+    /// Claude Code: `~/.claude/projects/<project>/<session>.jsonl`. A subagent's own transcript
+    /// (`<session>/subagents/*.jsonl`) is read with `sidechain: true`, since all its lines are sidechain.
+    public mutating func consumeClaude(_ line: Data, sidechain: Bool = false) {
         guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
-              object["isSidechain"] as? Bool != true, object["isMeta"] as? Bool != true,
+              sidechain || object["isSidechain"] as? Bool != true, object["isMeta"] as? Bool != true,
               let time = UsageDecoder.date(object["timestamp"]), time >= updatedAt else { return }
         if let cwd = object["cwd"] as? String, !cwd.isEmpty { project = URL(fileURLWithPath: cwd).lastPathComponent }
         let message = object["message"] as? [String: Any]
@@ -75,8 +76,11 @@ extension SessionState {
             // Error placeholders are written as "<synthetic>", not a real model.
             if let name = message?["model"] as? String, !name.isEmpty, !name.hasPrefix("<") { model = name }
             let id = message?["id"] as? String ?? "\(time.timeIntervalSince1970)"
+            let tools = (message?["content"] as? [[String: Any]])?.compactMap { $0["type"] as? String == "tool_use" ? $0["name"] as? String : nil } ?? []
             switch message?["stop_reason"] as? String {
             case "end_turn", "stop_sequence": transition(.completed, "end_turn:\(id)", at: time)
+            // A subagent ends by handing its report back rather than with end_turn.
+            case _ where sidechain && tools.contains("SubagentHandback"): transition(.completed, "handback:\(id)", at: time)
             case "refusal": transition(.failed, "refusal:\(id)", at: time)
             default:
                 // Tool calls and streamed blocks mean work is still in progress.

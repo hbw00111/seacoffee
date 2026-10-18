@@ -297,4 +297,50 @@ final class AgentSessionTests {
         expectEqual(received?.finished.map(\.agent), [.cline])
         expectEqual(received?.finished.first?.state, .completed)
     }
+
+    func backgroundSubagents() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? fm.removeItem(at: root) }
+        let project = root.appendingPathComponent("-Users-example-seacoffee")
+        try fm.createDirectory(at: project.appendingPathComponent("s1/subagents"), withIntermediateDirectories: true)
+        let main = project.appendingPathComponent("s1.jsonl"), sub = project.appendingPathComponent("s1/subagents/agent-a1.jsonl")
+        func stamp(_ offset: TimeInterval) -> String { ISO8601DateFormatter().string(from: Date().addingTimeInterval(offset)) }
+        func append(_ url: URL, _ data: Data) throws {
+            if !fm.fileExists(atPath: url.path) { fm.createFile(atPath: url.path, contents: nil) }
+            let handle = try FileHandle(forWritingTo: url); defer { try? handle.close() }
+            try handle.seekToEnd(); try handle.write(contentsOf: data + Data([10]))
+        }
+        try append(main, claude("user", at: stamp(1), ["content": "research this"]))
+        var received: MonitorSnapshot?
+        let monitor = SessionMonitor(sources: [SessionSource(agent: .claude, path: root.path)]) { received = $0 }
+        monitor.poll()
+        expectEqual(received?.sessions.map(\.state), [.running])
+
+        // The main turn ends while a background subagent is still calling tools.
+        try append(sub, claude("user", at: stamp(2), ["content": "look up X"], extra: ["isSidechain": true]))
+        try append(sub, claude("assistant", at: stamp(3), ["id": "m-sub", "stop_reason": "tool_use", "model": "claude-sonnet-5-5"], extra: ["isSidechain": true]))
+        try append(main, claude("assistant", at: stamp(4), ["id": "m-main", "stop_reason": "end_turn", "model": "claude-opus-5-5"]))
+        monitor.poll()
+        expectEqual(received?.sessions.count, 1, "the subagent is not a separate conversation")
+        expectEqual(received?.sessions.first?.state, .running)
+        expectEqual(received?.finished.count, 0, "completion waits for the subagent")
+
+        // The subagent finishes by handing back its report (no end_turn), then gets the tool result.
+        try append(sub, claude("assistant", at: stamp(5), ["id": "m-sub2", "content": [["type": "tool_use", "id": "t1", "name": "SubagentHandback"]]],
+                               extra: ["isSidechain": true]))
+        try append(sub, claude("user", at: stamp(6), ["content": [["type": "tool_result", "tool_use_id": "t1"]]], extra: ["isSidechain": true]))
+        monitor.poll()
+        expectEqual(received?.sessions.first?.state, .completed)
+        expectEqual(received?.finished.map(\.agent), [.claude])
+        monitor.poll()
+        expectEqual(received?.finished.count, 0)
+
+        // A subagent that went silent long ago does not keep a finished conversation running.
+        try append(project.appendingPathComponent("s1/subagents/agent-b2.jsonl"),
+                   claude("user", at: stamp(-2000), ["content": "stale"], extra: ["isSidechain": true]))
+        let other = SessionMonitor(sources: [SessionSource(agent: .claude, path: root.path)]) { received = $0 }
+        other.poll()
+        expectEqual(received?.sessions.first?.state, .completed)
+    }
 }

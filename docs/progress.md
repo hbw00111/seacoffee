@@ -34,12 +34,14 @@
 
 ## 当前状态
 
+后台子代理在跑时不再显示“没在运行”：Claude Code 主对话结束一轮后，只要它派出的后台子代理还在工作，刘海仍显示运行中，完成提示等子代理交回报告后才弹出。本机实测主对话 10:59:50 结束、子代理 11:00:03 交回，期间刘海保持运行中；本会话 4 个真实子代理记录均识别为已结束。
+
 Claude 令牌过期后不再停在旧额度：Sea Coffee 会在独立目录里用伪终端打开一次 Claude Code，输入 `/usage` 读取屏幕上的额度，Claude Code 启动时顺带续期自己的登录，之后又回到额度接口。会话没有工具、钩子和 MCP，不发任何提问，结束后删除该目录的会话记录；成功后至少隔 10 分钟、失败后隔 1 小时才再试，点击刷新不受限制。本机实测约 9 秒读到 5 小时窗口并让令牌续期；49 项核心检查与账号隔离检查通过。
 
 | 模块 | 状态 | 验证情况 |
 |---|---|---|
 | Codex 任务监听 | ✅ 可用 | 真实会话验证 |
-| Claude Code 任务监听 | ✅ 可用 | 真实会话验证（含子代理忽略、中断识别） |
+| Claude Code 任务监听 | ✅ 可用 | 真实会话验证（含后台子代理保持运行中、中断识别） |
 | Grok 任务监听 | ✅ 可用 | 真实会话验证 |
 | Cline 任务监听 | ✅ 可用 | 按 Cline CLI 源码中的状态枚举实现；本机近两天无会话，未做实时验证 |
 | Pi 命令行任务监听 | ✅ 可用 | 真实会话验证 |
@@ -76,6 +78,7 @@ Claude 令牌过期后不再停在旧额度：Sea Coffee 会在独立目录里�
 | 09-29 | AI 向你提问时弹出问号徽章：识别 Claude Code 的 `AskUserQuestion`（可知是否已回答，未回答期间左侧液滴变紫蓝色脉动、面板写“在等你回答”）和 Codex 的 `request_user_input`（非阻塞，只提示一次）；菜单栏新增“预览提问提示”，静态预览与动效预览加入提问版本；新增 3 项检查 |
 | 09-29 | 界面改版（`DESIGN.md`）：近黑平面、细分隔线与紫蓝强调色；展开面板改为账号列表，每个账号分别显示 5 小时、每周额度条与重置时间，过期显示“待更新”；设置窗口加宽到 800 pt，加入左侧分区导航；面板高度随额度行数变化；新增 `--render-settings` 静态预览 |
 | 10-18 | Claude 令牌过期时改为打开 Claude Code 的 `/usage` 读取额度（参考 CodexBar），CLI 顺带续期，Sea Coffee 仍不碰令牌；新增 `/usage` 屏幕解析与 1 项检查 |
+| 10-18 | 后台子代理（`subagents/*.jsonl`）仍在工作时主对话保持运行中，完成提示推迟到子代理交回报告（`SubagentHandback`）之后；新增 1 项检查 |
 
 ## 进行中
 
@@ -110,7 +113,7 @@ Claude 令牌过期后不再停在旧额度：Sea Coffee 会在独立目录里�
 ## 开发备忘
 
 - 构建与运行：`bash scripts/build-app.sh && open "dist/Sea Coffee.app"`
-- 检查：`swift run IslandChecks`（49 项）、`bash scripts/check-account-isolation.sh`、`bash scripts/check-credentials.sh`
+- 检查：`swift run IslandChecks`（50 项）、`bash scripts/check-account-isolation.sh`、`bash scripts/check-credentials.sh`
 - 静态预览（不读取凭据）：`dist/Sea\ Coffee.app/Contents/MacOS/SeaCoffee --render-preview dist/preview.png` 导出岛的四种状态（运行中、完成、提问、收起），`--render-settings /tmp/settings.png` 导出设置的三个分区。改界面前先读 `DESIGN.md`。
 - 目录：`Sources/IslandCore` 放与界面无关、可测试的逻辑（各家协议解析、会话状态机、凭据文件、PI-Desktop 数据库读取）；`Sources/SeaCoffee` 放界面与账号接入。
 - 几个关键决定：

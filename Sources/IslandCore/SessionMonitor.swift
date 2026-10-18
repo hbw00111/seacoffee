@@ -37,12 +37,22 @@ public struct SessionSource: Sendable {
         let name = url.lastPathComponent
         switch agent {
         case .codex: return url.pathExtension == "jsonl"
-        // Top-level transcripts only; subagent transcripts live one level deeper.
-        case .claude: return url.pathExtension == "jsonl" && url.deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL == root.standardizedFileURL
+        // Top-level transcripts, plus subagent transcripts that only keep their parent running.
+        case .claude: return url.pathExtension == "jsonl" && (url.deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL == root.standardizedFileURL || parentTranscript(of: url) != nil)
         case .grok: return name == "events.jsonl"
         case .pi: return url.pathExtension == "jsonl" && url.deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL == root.standardizedFileURL
         case .cline: return name.hasPrefix("session_") && name.hasSuffix(".json") && !name.hasSuffix(".messages.json")
         }
+    }
+
+    /// Claude Code writes each subagent to `<project>/<session>/subagents/*.jsonl`; this returns the
+    /// path of the conversation it belongs to, `<project>/<session>.jsonl`.
+    func parentTranscript(of url: URL) -> String? {
+        guard agent == .claude, url.pathExtension == "jsonl", url.deletingLastPathComponent().lastPathComponent == "subagents" else { return nil }
+        let session = url.deletingLastPathComponent().deletingLastPathComponent()
+        let project = session.deletingLastPathComponent()
+        guard project.deletingLastPathComponent().standardizedFileURL == root.standardizedFileURL else { return nil }
+        return project.appendingPathComponent(session.lastPathComponent + ".jsonl").standardizedFileURL.path
     }
 
     func newState(for url: URL) -> SessionState {
@@ -59,7 +69,7 @@ public struct SessionSource: Sendable {
     func consume(_ line: Data, into state: inout SessionState) {
         switch agent {
         case .codex: state.consume(line)
-        case .claude: state.consumeClaude(line)
+        case .claude: state.consumeClaude(line, sidechain: false)
         case .grok: state.consumeGrok(line)
         case .pi: state.consumePi(line)
         case .cline: break
@@ -73,12 +83,18 @@ public final class SessionMonitor: @unchecked Sendable {
         var modified = Date.distantPast
         var pending = Data()
         var state: SessionState
+        /// Set for a Claude subagent: the main transcript it keeps running.
+        var parent: String?
     }
     private let queue = DispatchQueue(label: "com.seacoffee.SeaIsland.telemetry", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var cursors: [URL: Cursor] = [:]
     private var firstScan = true
     private let launchedAt = Date()
+    /// Completions held back while background subagents still work, by transcript path.
+    private var deferred: [String: String] = [:]
+    /// A subagent silent for this long no longer keeps its conversation running.
+    private let subagentSilence: TimeInterval = 900
     private let sources: [SessionSource]
     private let callback: (MonitorSnapshot) -> Void
 
@@ -118,7 +134,7 @@ public final class SessionMonitor: @unchecked Sendable {
             let line = Data(cursor.pending[..<newline])
             cursor.pending.removeSubrange(...newline)
             if skipFirst { skipFirst = false; continue }
-            source.consume(line, into: &cursor.state)
+            if cursor.parent != nil { cursor.state.consumeClaude(line, sidechain: true) } else { source.consume(line, into: &cursor.state) }
         }
         if cursor.pending.count > 1024 * 1024 { cursor.pending = Data() }
     }
@@ -133,6 +149,7 @@ public final class SessionMonitor: @unchecked Sendable {
         }
         let now = Date()
         var finished: [SessionState] = []
+        var completions: [(path: String, state: SessionState)] = []
         var asked: [SessionState] = []
         var readFailure = false
         var allowed = Set<URL>()
@@ -173,7 +190,8 @@ public final class SessionMonitor: @unchecked Sendable {
             allowed.formUnion(selected.map(\.0))
             for (url, modified) in selected {
                 do {
-                    var cursor = cursors[url] ?? Cursor(state: source.newState(for: url))
+                    let parent = source.parentTranscript(of: url)
+                    var cursor = cursors[url] ?? Cursor(state: source.newState(for: url), parent: parent)
                     let oldTransition = cursor.state.transitionID
                     let oldQuestion = cursor.state.question?.id
                     if source.isSnapshot {
@@ -186,9 +204,14 @@ public final class SessionMonitor: @unchecked Sendable {
                         try read(url, source: source, cursor: &cursor)
                     }
                     cursor.modified = modified
+                    if parent != nil { cursors[url] = cursor; continue }
                     if !firstScan, oldTransition != cursor.state.transitionID,
                        [.completed, .failed, .interrupted].contains(cursor.state.state), cursor.state.updatedAt >= launchedAt {
-                        finished.append(cursor.state)
+                        if cursor.state.state == .completed {
+                            completions.append((url.standardizedFileURL.path, cursor.state))
+                        } else {
+                            finished.append(cursor.state)
+                        }
                     }
                     // Only a fresh question that still needs the user: not one answered within this scan,
                     // and not an old unanswered one found when a long-idle file is read again.
@@ -202,7 +225,32 @@ public final class SessionMonitor: @unchecked Sendable {
         }
         cursors = cursors.filter { allowed.contains($0.key) }
         firstScan = false
-        var states = cursors.values.map(\.state)
+
+        // Background subagents keep working after the main turn ends: the conversation stays
+        // running, and its completion is announced once they are done.
+        var busy: [String: Date] = [:]
+        for cursor in cursors.values {
+            guard let parent = cursor.parent, cursor.state.state == .running,
+                  now.timeIntervalSince(cursor.state.updatedAt) < subagentSilence else { continue }
+            busy[parent] = max(busy[parent] ?? .distantPast, cursor.state.updatedAt)
+        }
+        for completion in completions {
+            if busy[completion.path] != nil { deferred[completion.path] = completion.state.transitionID } else { finished.append(completion.state) }
+        }
+        let mains = Dictionary(cursors.filter { $0.value.parent == nil }.map { ($0.key.standardizedFileURL.path, $0.value.state) }) { a, _ in a }
+        for (path, transition) in deferred where busy[path] == nil {
+            deferred[path] = nil
+            if let state = mains[path], state.state == .completed, state.transitionID == transition { finished.append(state) }
+        }
+
+        var states = cursors.filter { $0.value.parent == nil }.map { url, cursor -> SessionState in
+            var state = cursor.state
+            if let active = busy[url.standardizedFileURL.path], state.state != .running {
+                state.state = .running
+                state.updatedAt = max(state.updatedAt, active)
+            }
+            return state
+        }
         for index in states.indices where states[index].state == .running && now.timeIntervalSince(states[index].updatedAt) > 2700 {
             states[index].state = .unknown // Silence is never interpreted as successful completion.
         }

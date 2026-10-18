@@ -87,7 +87,8 @@ enum Checks {
             ("Pi turns, models and Cline Pass channel", agents.piTurns),
             ("PI-Desktop database: latest turn per session", piDesktop.latestTurnPerSession),
             ("PI-Desktop database: completion notices", piDesktop.monitorReportsCompletion),
-            ("monitor follows Claude, Grok and Cline together", agents.monitorsAllAgents)
+            ("monitor follows Claude, Grok and Cline together", agents.monitorsAllAgents),
+            ("Claude background subagents keep a conversation running", agents.backgroundSubagents)
         ]
         for (name, check) in checks {
             let count = failures.count
