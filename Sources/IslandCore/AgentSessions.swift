@@ -49,6 +49,11 @@ extension SessionState {
         question = Question(id: id, askedAt: time, blocking: blocking)
     }
 
+    /// Lines Claude Code writes for local slash commands (`/context`, `/compact`) and `!` shell
+    /// commands. They are recorded as user messages but never start a model turn.
+    private static let claudeLocalCommandPrefixes = ["<command-name>", "<command-message>", "<command-args>",
+        "<local-command-", "<bash-input>", "<bash-stdout>", "<bash-stderr>"]
+
     /// Claude Code: `~/.claude/projects/<project>/<session>.jsonl`. A subagent's own transcript
     /// (`<session>/subagents/*.jsonl`) is read with `sidechain: true`, since all its lines are sidechain.
     public mutating func consumeClaude(_ line: Data, sidechain: Bool = false) {
@@ -69,6 +74,12 @@ extension SessionState {
                     question?.answered = true
                 }
                 activity(at: time)
+            } else if !texts.isEmpty, texts.allSatisfy({ text in
+                let head = text.drop { $0.isWhitespace }
+                return Self.claudeLocalCommandPrefixes.contains { head.hasPrefix($0) }
+            }) {
+                // A prompt-style command still starts a turn: its first assistant line marks it running.
+                break
             } else if !texts.isEmpty || blocks?.isEmpty == false {
                 transition(.running, "prompt:\(time.timeIntervalSince1970)", at: time)
             }

@@ -36,6 +36,16 @@ final class AgentSessionTests {
         expectEqual(s.state, .interrupted, "out-of-order lines are ignored")
         s.consumeClaude(Data("not json".utf8))
         expectEqual(s.state, .interrupted)
+        // Local slash commands and `!` shell commands write user lines but no model turn.
+        s.consumeClaude(claude("user", at: "2026-09-26T03:02:00Z", ["content": "<command-name>/context</command-name>\n<command-message>context</command-message>"]))
+        s.consumeClaude(claude("user", at: "2026-09-26T03:02:01Z", ["content": "<local-command-stdout>Compacted </local-command-stdout>"]))
+        s.consumeClaude(claude("user", at: "2026-09-26T03:02:02Z", ["content": [["type": "text", "text": "<bash-input>ls</bash-input>"]]]))
+        s.consumeClaude(claude("user", at: "2026-09-26T03:02:03Z", ["content": "<bash-stdout>a</bash-stdout><bash-stderr></bash-stderr>"]))
+        expectEqual(s.state, .interrupted, "local commands do not start a turn")
+        // A prompt-style command is marked running by its first assistant line.
+        s.consumeClaude(claude("user", at: "2026-09-26T03:03:00Z", ["content": "<command-name>/review</command-name>"]))
+        s.consumeClaude(claude("assistant", at: "2026-09-26T03:03:02Z", ["id": "m3", "content": [["type": "thinking"]]]))
+        expectEqual(s.state, .running)
     }
 
     private func askUserQuestion(_ id: String, at time: String, extra: [String: Any] = [:]) -> Data {
