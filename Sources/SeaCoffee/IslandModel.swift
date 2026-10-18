@@ -23,16 +23,21 @@ struct PlanLane: Identifiable {
     let message: String
     /// A first fetch is in flight with nothing to show yet.
     var loading = false
+    /// The latest query failed; with nothing to show, the panel says 额度没查到.
+    var failed = false
     var primary: Quota? { snapshot?.quotas.first }
 }
 
 /// Keep the same window selection and sizing in the view and panel geometry.
 enum QuotaPresentation {
+    /// CC Switch's two rows: the shortest window, then whichever other window has the least left.
+    /// Sonnet's weekly limit stays in the details.
     static func windows(_ snapshot: UsageSnapshot?, totalOnly: Bool = false) -> [Quota] {
         let all = snapshot?.quotas ?? []
-        if totalOnly { return Array(all.prefix(1)) }
-        let selected = all.filter { ["5 小时", "每周", "7 天"].contains($0.label) }
-        return selected.isEmpty ? Array(all.prefix(1)) : Array(selected.prefix(2))
+        guard let first = all.first else { return [] }
+        if totalOnly { return [first] }
+        let tightest = all.dropFirst().filter { $0.id != "claude-seven_day_sonnet" }.min { $0.fraction < $1.fraction }
+        return [first] + (tightest.map { [$0] } ?? [])
     }
     static func height(_ count: Int) -> CGFloat { 34 + CGFloat(max(1, count)) * 20 }
 }
@@ -75,6 +80,9 @@ final class IslandModel: ObservableObject {
     @Published var notice: SessionState?
     @Published var completion: CompletionPresentation?
     @Published var reducedMotion: Bool
+    /// Scheduled quota refresh, in minutes (CC Switch defaults to 5). Task completions refresh too.
+    @Published var refreshMinutes: Int
+    static let refreshChoices = [1, 2, 5, 10, 30]
     @Published var hoverEnabled: Bool
     /// Agents whose local session files are followed; all by default.
     @Published private(set) var watchedAgents: Set<Agent>
@@ -169,29 +177,31 @@ final class IslandModel: ObservableObject {
     }
     var showsClaude: Bool { demo || claudeAccount.enabled || claudeSnapshot != nil }
     // Claude polls every two minutes, so allow one missed refresh before dimming.
-    var claudeIsStale: Bool { !demo && claudeSnapshot.map { Date().timeIntervalSince($0.fetchedAt) > 300 } == true }
+    var claudeIsStale: Bool { !demo && claudeSnapshot.map { Date().timeIntervalSince($0.fetchedAt) > staleAfter(300) } == true }
     var displayedGrokSnapshot: UsageSnapshot? {
         demo ? UsageSnapshot(quotas: [Quota(id: "grok-credits", label: "每周", remaining: 90, limit: 100, monetary: false, resetsAt: Date().addingTimeInterval(172800))],
                              source: "Grok") : grokSnapshot
     }
     var showsGrok: Bool { demo || grokAccount.enabled || grokSnapshot != nil }
-    var grokIsStale: Bool { !demo && grokSnapshot.map { Date().timeIntervalSince($0.fetchedAt) > 300 } == true }
+    var grokIsStale: Bool { !demo && grokSnapshot.map { Date().timeIntervalSince($0.fetchedAt) > staleAfter(300) } == true }
     var planLanes: [PlanLane] {
         var lanes = [PlanLane(id: "CL", title: "Cline Pass", snapshot: displayedClineSnapshot, stale: clineIsStale, message: clineMessage,
-                              loading: clineAccount.busy && clineSnapshot == nil)]
+                              loading: clineAccount.busy && clineSnapshot == nil, failed: clineAccount.lastSucceeded == false)]
         if showsClaude {
             lanes.append(PlanLane(id: "CC", title: "Claude", snapshot: displayedClaudeSnapshot, stale: claudeIsStale, message: claudeMessage,
-                                  loading: claudeAccount.busy && claudeSnapshot == nil))
+                                  loading: claudeAccount.busy && claudeSnapshot == nil, failed: claudeAccount.lastSucceeded == false))
         }
         if showsGrok {
             lanes.append(PlanLane(id: "GK", title: "Grok", snapshot: displayedGrokSnapshot, stale: grokIsStale, message: grokMessage,
-                                  loading: grokAccount.busy && grokSnapshot == nil))
+                                  loading: grokAccount.busy && grokSnapshot == nil, failed: grokAccount.lastSucceeded == false))
         }
         return lanes
     }
-    var clineIsStale: Bool { !demo && clineSnapshot.map { Date().timeIntervalSince($0.fetchedAt) > 180 } == true }
+    var clineIsStale: Bool { !demo && clineSnapshot.map { Date().timeIntervalSince($0.fetchedAt) > staleAfter(180) } == true }
     var primary: Quota? { displayedSnapshot?.quotas.first }
-    var isStale: Bool { !demo && snapshot.map { Date().timeIntervalSince($0.fetchedAt) > 180 } == true }
+    var isStale: Bool { !demo && snapshot.map { Date().timeIntervalSince($0.fetchedAt) > staleAfter(180) } == true }
+    /// A quota is stale after missing two scheduled refreshes, never sooner than the account's own floor.
+    func staleAfter(_ floor: TimeInterval) -> TimeInterval { max(floor, Double(refreshMinutes) * 120 + 60) }
     /// "Claude Code · claude-opus-5-5" under the completion check.
     var completionCaption: CompletionCaption? {
         let question = completion?.kind == .question
@@ -251,6 +261,7 @@ final class IslandModel: ObservableObject {
     init(defaults: UserDefaults = SeaCoffeePreferences.shared) {
         source = Provider(rawValue: defaults.string(forKey: "source") ?? "") ?? .sub2api
         reducedMotion = defaults.bool(forKey: "reducedMotion")
+        refreshMinutes = Self.refreshChoices.contains(defaults.integer(forKey: "quotaRefreshMinutes")) ? defaults.integer(forKey: "quotaRefreshMinutes") : 5
         hoverEnabled = defaults.object(forKey: "hoverEnabled") as? Bool ?? true
         watchedAgents = defaults.stringArray(forKey: "watchedAgents").map { Set($0.compactMap(Agent.init(rawValue:))) } ?? Set(Agent.allCases)
         account.binaryPath = defaults.string(forKey: "codexBinary") ?? ""
@@ -316,7 +327,11 @@ final class IslandModel: ObservableObject {
         stopped = false
         refreshTimer?.invalidate()
         startMonitor(); refresh()
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+        scheduleRefresh()
+    }
+    private func scheduleRefresh() {
+        refreshTimer?.invalidate()
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: Double(refreshMinutes) * 60, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
     }
@@ -423,6 +438,11 @@ final class IslandModel: ObservableObject {
         refreshTask?.cancel(); refreshing = false; snapshot = nil
         reducedMotion = SeaCoffeePreferences.shared.bool(forKey: "reducedMotion")
         hoverEnabled = SeaCoffeePreferences.shared.object(forKey: "hoverEnabled") as? Bool ?? true
+        let minutes = SeaCoffeePreferences.shared.integer(forKey: "quotaRefreshMinutes")
+        if Self.refreshChoices.contains(minutes), minutes != refreshMinutes {
+            refreshMinutes = minutes
+            if refreshTimer != nil { scheduleRefresh() }
+        }
         account.stop(); account.binaryPath = SeaCoffeePreferences.shared.string(forKey: "codexBinary") ?? ""
         startMonitor(); refresh(); geometryChanged?()
     }

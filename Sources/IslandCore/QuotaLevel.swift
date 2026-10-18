@@ -3,8 +3,9 @@ public enum QuotaLevel: Sendable, Equatable {
 
     public init(fraction: Double?) {
         guard let fraction, fraction.isFinite else { self = .unknown; return }
-        // Match the rounded percentage shown inside the ring at the boundaries.
+        // CC Switch: normal above 20% left, orange below, red once used up. Boundaries follow the
+        // rounded percentage shown next to the ring.
         let percent = Int((min(1, max(0, fraction)) * 100).rounded())
-        self = percent >= 50 ? .healthy : percent >= 20 ? .warning : .low
+        self = percent >= 20 ? .healthy : percent > 0 ? .warning : .low
     }
 }

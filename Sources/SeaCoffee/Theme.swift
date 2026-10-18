@@ -23,6 +23,8 @@ enum Palette {
     static let silver = adaptive(0x595750, 0xD3D0C7)
     static let lilac = adaptive(0x755AA4, 0xB8A3D5)
     static let warning = adaptive(0x966315, 0xEBC16D)
+    /// Quota below 20% left (CC Switch's orange).
+    static let low = adaptive(0xC2410C, 0xFB923C)
     static let danger = adaptive(0xBA423D, 0xEF8580)
 
     private static func adaptive(_ light: UInt32, _ dark: UInt32) -> Color {
@@ -52,6 +54,7 @@ enum NotchPalette {
     static let lilac = Color(hex: 0xB8A3D5)
     static let attention = Color(hex: 0xA99CEC)
     static let warning = Color(hex: 0xEBC16D)
+    static let low = Color(hex: 0xFB923C)
     static let danger = Color(hex: 0xEF8580)
 }
 

@@ -220,7 +220,7 @@ struct IslandView: View {
                 GlassDivider(darkSurface: true)
                 quotaRow(style: ServiceStyle(laneID: lane.id), title: lane.title,
                          windows: QuotaPresentation.windows(lane.snapshot),
-                         message: lane.message, loading: lane.loading, stale: lane.stale)
+                         message: lane.failed ? "额度没查到 · " + lane.message : lane.message, loading: lane.loading, stale: lane.stale)
             }
             Spacer(minLength: 0)
             GlassDivider(darkSurface: true)
@@ -239,10 +239,7 @@ struct IslandView: View {
     }
     private func resetCaption(_ quota: Quota) -> String {
         guard let reset = quota.resetsAt else { return "重置时间未提供" }
-        if reset <= Date() { return "已到重置时间 · 待刷新" }
-        let day = Calendar.current.isDateInToday(reset) ? "今天" :
-            Calendar.current.isDateInTomorrow(reset) ? "明天" : reset.formatted(.dateTime.month().day())
-        return "\(day) \(reset.formatted(date: .omitted, time: .shortened)) 重置"
+        return UsageFormat.resetText(reset) ?? "已到重置时间 · 待刷新"
     }
     private func quotaRow(style: ServiceStyle, title: String, windows: [Quota],
                           totalOnly: Bool = false, message: String, loading: Bool, stale: Bool) -> some View {
@@ -340,7 +337,7 @@ struct QuotaRing: View {
     static func tint(for fraction: Double?, darkSurface: Bool = false) -> Color {
         switch QuotaLevel(fraction: fraction) {
         case .healthy: return darkSurface ? NotchPalette.mint : Palette.mint
-        case .warning: return darkSurface ? NotchPalette.warning : Palette.warning
+        case .warning: return darkSurface ? NotchPalette.low : Palette.low
         case .low: return darkSurface ? NotchPalette.danger : Palette.danger
         case .unknown: return .gray
         }

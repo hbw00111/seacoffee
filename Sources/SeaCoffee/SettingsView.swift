@@ -16,6 +16,7 @@ struct SettingsView: View {
     @State private var sessionPath: String
     @State private var binary: String
     @State private var reducedMotion: Bool
+    @State private var refreshMinutes: Int
     @State private var hoverEnabled: Bool
     @State private var result = ""
     @State private var saved = false
@@ -36,6 +37,7 @@ struct SettingsView: View {
         _sessionPath = State(initialValue: previewSection == nil ? model.sessionPath : "~/.codex/sessions")
         _binary = State(initialValue: previewSection == nil ? SeaCoffeePreferences.shared.string(forKey: "codexBinary") ?? "" : "")
         _reducedMotion = State(initialValue: model.reducedMotion)
+        _refreshMinutes = State(initialValue: model.refreshMinutes)
         _hoverEnabled = State(initialValue: model.hoverEnabled)
     }
     private var selectedTheme: InterfaceTheme { previewAppearance ?? InterfaceTheme(rawValue: theme) ?? .light }
@@ -160,7 +162,7 @@ struct SettingsView: View {
 
     private func accountShortcut(_ id: String, title: String, style: ServiceStyle,
                                  usage: UsageSnapshot?, jump: @escaping (String) -> Void) -> some View {
-        let stale = usage.map { Date().timeIntervalSince($0.fetchedAt) > (id == "claude" || id == "grok" ? 300 : 180) } ?? false
+        let stale = usage.map { Date().timeIntervalSince($0.fetchedAt) > model.staleAfter(id == "claude" || id == "grok" ? 300 : 180) } ?? false
         return Button { jump(id) } label: {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 6) {
@@ -192,19 +194,19 @@ struct SettingsView: View {
                 ClineAccountSettings(account: model.clineAccount, apiKey: $clineKey)
                 GlassDivider()
                 statusRow { Text(model.clineMessage).multilineTextAlignment(.trailing).textSelection(.enabled) }
-                SettingsUsageDetails(usage: model.clineSnapshot, loading: model.clineAccount.busy, staleAfter: 180)
+                SettingsUsageDetails(usage: model.clineSnapshot, loading: model.clineAccount.busy, staleAfter: model.staleAfter(180))
             }.id("cline")
             GlassSection(title: "Claude", subtitle: "使用本机 Claude Code 登录", icon: ServiceStyle.claude.icon, tint: ServiceStyle.claude.tint) {
                 ClaudeAccountSettings(account: model.claudeAccount)
                 GlassDivider()
                 statusRow { Text(model.claudeMessage).multilineTextAlignment(.trailing).textSelection(.enabled) }
-                SettingsUsageDetails(usage: model.claudeSnapshot, loading: model.claudeAccount.busy, staleAfter: 300)
+                SettingsUsageDetails(usage: model.claudeSnapshot, loading: model.claudeAccount.busy, staleAfter: model.staleAfter(300))
             }.id("claude")
             GlassSection(title: "Grok", subtitle: "使用本机 Grok CLI 登录", icon: ServiceStyle.grok.icon, tint: ServiceStyle.grok.tint) {
                 GrokAccountSettings(account: model.grokAccount)
                 GlassDivider()
                 statusRow { Text(model.grokMessage).multilineTextAlignment(.trailing).textSelection(.enabled) }
-                SettingsUsageDetails(usage: model.grokSnapshot, loading: model.grokAccount.busy, staleAfter: 300)
+                SettingsUsageDetails(usage: model.grokSnapshot, loading: model.grokAccount.busy, staleAfter: model.staleAfter(300))
             }.id("grok")
             GlassSection(title: "凭据与隐私", subtitle: "登录信息仅保留在本机", symbol: "key", tint: Palette.dim) {
                 caption("API Key 与 Cline 登录保存在仅当前用户可读的本地文件。更新应用无需重新连接；旧版本凭据可在这里授权导入。")
@@ -279,6 +281,16 @@ struct SettingsView: View {
                 #endif
                 SettingRow("减少动态效果") { HStack { Spacer(); Toggle("减少动态效果", isOn: $reducedMotion).labelsHidden() } }
                 caption("减少位移、弹跳和翻转，保留清晰的状态反馈。系统的减少动态效果设置同样有效。")
+                GlassDivider()
+                SettingRow("额度刷新间隔") {
+                    HStack {
+                        Spacer()
+                        Picker("额度刷新间隔", selection: $refreshMinutes) {
+                            ForEach(IslandModel.refreshChoices, id: \.self) { Text("\($0) 分钟").tag($0) }
+                        }.labelsHidden().fixedSize()
+                    }
+                }
+                caption("与 CC Switch 一致默认 5 分钟；任务完成时也会刷新。Claude 与 Grok 两次查询至少间隔 2 分钟。")
                 #if !SEACOFFEE_DROPPY
                 GlassDivider()
                 SettingRow("开机自启") { LaunchAtLoginToggle(launch: model.launchAtLogin) }
@@ -286,9 +298,9 @@ struct SettingsView: View {
             }
             GlassSection(title: "读懂状态", symbol: "info.circle", tint: Palette.dim) {
                 HStack(spacing: 18) {
-                    statusLegend("充足 ≥50%", color: Palette.mint)
-                    statusLegend("留意 20–49%", color: Palette.warning)
-                    statusLegend("偏低 <20%", color: Palette.danger)
+                    statusLegend("充足 ≥20%", color: Palette.mint)
+                    statusLegend("偏低 <20%", color: Palette.low)
+                    statusLegend("已用完", color: Palette.danger)
                 }
                 caption("运行中为橙色，等待你回答为紫色，完成为绿色，失败为红色；未知额度显示为破折号。")
                 #if SEACOFFEE_DROPPY
@@ -403,7 +415,7 @@ struct SettingsView: View {
                 }
             }
             GlassDivider()
-            SettingsUsageDetails(usage: model.snapshot, loading: model.refreshing, staleAfter: 180)
+            SettingsUsageDetails(usage: model.snapshot, loading: model.refreshing, staleAfter: model.staleAfter(180))
         }
     }
     private var actionBar: some View {
@@ -502,6 +514,7 @@ struct SettingsView: View {
                     defaults.set(sessionPath, forKey: "sessionPath")
                     defaults.set(binary, forKey: "codexBinary")
                     defaults.set(reducedMotion, forKey: "reducedMotion")
+                    defaults.set(refreshMinutes, forKey: "quotaRefreshMinutes")
                     defaults.set(hoverEnabled, forKey: "hoverEnabled")
                     if let present {
                         hasSavedKey = present
@@ -624,7 +637,7 @@ private struct ClaudeAccountSettings: View {
 
                 }
             }
-            Text("先在 Claude Code 中登录，再连接到这里。登录信息只读，令牌仅保存在内存，不会更改原有账号。每 2 分钟更新额度；必要时系统会请求读取钥匙串。")
+            Text("先在 Claude Code 中登录，再连接到这里。登录信息只读，令牌仅保存在内存，不会更改原有账号。按设置的间隔更新额度（最短 2 分钟）；必要时系统会请求读取钥匙串。")
                 .font(.system(size: 11)).foregroundStyle(Palette.dim).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
                 Button(account.enabled ? "重新读取" : "连接 Claude Code") { pending = true; account.connect() }
@@ -665,7 +678,7 @@ private struct GrokAccountSettings: View {
 
                 }
             }
-            Text("先运行 grok login，再连接到这里。复用本机登录，每 2 分钟更新额度。登录过期时由 Grok CLI 自动续期，不发起对话或消耗额度。")
+            Text("先运行 grok login，再连接到这里。复用本机登录，按设置的间隔更新额度（最短 2 分钟）。登录过期时由 Grok CLI 自动续期，不发起对话或消耗额度。")
                 .font(.system(size: 11)).foregroundStyle(Palette.dim).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
                 Button(account.enabled ? "立即刷新" : "连接 Grok") { pending = true; account.connect() }
@@ -814,8 +827,9 @@ struct SettingsUsageDetails: View {
                     ForEach(usage.quotas) { quota in
                         quotaDetail(quota, now: context.date)
                     }
-                    Text("上次成功查询 · " + usage.fetchedAt.formatted(date: .abbreviated, time: .standard))
+                    Text(UsageFormat.updatedText(usage.fetchedAt, now: context.date))
                         .font(.system(size: 10)).foregroundStyle(Palette.dim)
+                        .help("上次成功查询 · " + usage.fetchedAt.formatted(date: .abbreviated, time: .standard))
                 } else {
                     Text(loading ? "正在获取额度…" : "暂无额度数据 · 连接账号或刷新后显示")
                         .font(.system(size: 11)).foregroundStyle(Palette.dim)
@@ -836,7 +850,7 @@ struct SettingsUsageDetails: View {
                 Text(quota.id == "wallet" ? "相对满格基准" : quota.label == "7 天" ? "每周" : quota.label)
                     .font(.system(size: 11, weight: .medium))
                 Spacer(minLength: 8)
-                Text("剩余 \(quota.percent)%")
+                Text(QuotaLevel(fraction: quota.fraction) == .low ? "已用完" : "剩余 \(quota.percent)%")
                     .font(.system(size: 12, weight: .semibold)).monospacedDigit()
                     .foregroundStyle(QuotaRing.tint(for: quota.fraction))
             }
@@ -854,8 +868,9 @@ struct SettingsUsageDetails: View {
                     .font(.system(size: 10)).foregroundStyle(Palette.dim).monospacedDigit()
             }
             if let reset = quota.resetsAt {
-                Text(reset <= now ? "已到重置时间 · 等待刷新" : "重置于 " + reset.formatted(date: .abbreviated, time: .shortened))
+                Text(UsageFormat.resetText(reset, now: now) ?? "已到重置时间 · 等待刷新")
                     .font(.system(size: 10)).foregroundStyle(Palette.dim)
+                    .help(reset.formatted(date: .abbreviated, time: .shortened) + " 重置")
             } else if quota.id != "wallet" {
                 Text("未提供重置时间").font(.system(size: 10)).foregroundStyle(Palette.dim)
             }

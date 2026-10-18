@@ -47,8 +47,8 @@ public enum ClaudeUsageScreen {
         let lower = line.lowercased()
         if lower.hasPrefix("current session") { return ("five_hour", "5 小时") }
         guard lower.hasPrefix("current week") else { return nil }
-        if lower.contains("sonnet") { return ("seven_day_sonnet", "Sonnet 每周") }
-        if lower.contains("opus") { return ("seven_day_opus", "Opus 每周") }
+        if lower.contains("sonnet") { return ("seven_day_sonnet", "每周 Sonnet") }
+        if lower.contains("opus") { return ("seven_day_opus", "每周 Opus") }
         return ("seven_day", "每周")
     }
 

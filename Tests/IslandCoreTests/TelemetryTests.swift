@@ -51,7 +51,7 @@ final class TelemetryTests {
             ]] as [String: Any]
         ])
         expectEqual(value.quotas.map(\.percent), [76, 40])
-        expectEqual(value.quotas.map(\.label), ["5 小时", "7 天"])
+        expectEqual(value.quotas.map(\.label), ["5 小时", "每周"])
         expectEqual(value.quotas.first?.resetsAt?.timeIntervalSince1970, 1_800_000_000)
     }
     func testMissingOfficialDataIsUnavailableNotZero() {

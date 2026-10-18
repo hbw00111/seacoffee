@@ -2,48 +2,72 @@ import SwiftUI
 import Charts
 import IslandCore
 
+/// Everything the calls tab shows for one range and filter, built off the main thread.
+struct UsagePrepared: Sendable {
+    var report = UsageStatsReport()
+    var unpriced = 0
+    /// Logs split by the status filter menu, built once so redraws never scan the whole list.
+    var byStatus: [Int: [UsageLog]] = [:]
+    static let statuses = [200, 400, 401, 429, 500]
+    init() {}
+    init(dataset: UsageDataset, range: UsageRange, filter: UsageFilter) {
+        report = UsageStatsReport(dataset, range: range, filter: filter)
+        for log in report.logs {
+            if log.costState == .unpriced { unpriced += 1 }
+            if Self.statuses.contains(log.status) { byStatus[log.status, default: []].append(log) }
+        }
+    }
+    func logs(status: Int?) -> [UsageLog] { status.map { byStatus[$0] ?? [] } ?? report.logs }
+}
+
 @MainActor
 final class UsageDashboardModel: ObservableObject {
-    private(set) var records: [UsageRecord] = []
-    private(set) var apps: [String] = [], providers: [String] = [], models: [String] = []
+    private(set) var dataset = UsageDataset()
     @Published var revision = 0
-    @Published var report = UsageReport()
+    @Published var prepared = UsagePrepared()
+    @Published var heatmap: UsageHeatmap?
     @Published var preparing = false
     private var reportKey: [String] = []
-    func prepare(key: [String], since: Date, hourly: Bool, app: String?, provider: String?, model: String?) async {
+    private var heatmapKey: [String] = []
+    var apps: [String] { dataset.apps }
+    var providers: [String] { dataset.providers }
+    var models: [String] { dataset.models }
+
+    func prepare(key: [String], range: UsageRange, filter: UsageFilter) async {
         guard reportKey != key else { return }
         preparing = true
-        let records = records
+        let dataset = dataset
         let result = await Task.detached(priority: .userInitiated) {
-            UsageReport(records: records, since: since, hourly: hourly, app: app, provider: provider, model: model)
+            UsagePrepared(dataset: dataset, range: range, filter: filter)
+        }.value
+        guard !Task.isCancelled else { preparing = false; return }
+        prepared = result; reportKey = key; preparing = false
+    }
+    func prepareHeatmap(key: [String], metric: UsageHeatmapMetric, filter: UsageFilter) async {
+        guard heatmapKey != key else { return }
+        let dataset = dataset
+        let result = await Task.detached(priority: .userInitiated) {
+            UsageHeatmap(dataset, metric: metric, filter: filter)
         }.value
         guard !Task.isCancelled else { return }
-        report = result; reportKey = key; preparing = false
+        heatmap = result; heatmapKey = key
     }
+
     @Published var history: [QuotaHistoryPoint] = []
     @Published var loading = false
     @Published var error: String?
     @Published var historyError: String?
-    @Published var truncated = false
     @Published var updated: Date?
     func reload(force: Bool = true) async {
         if !force, let updated, Date().timeIntervalSince(updated) < 60 { return }
         guard !loading else { return }
         loading = true
         defer { loading = false }
-        let since = Calendar.current.date(byAdding: .day, value: -29, to: Calendar.current.startOfDay(for: Date()))!
-        let result = await Task.detached(priority: .utility) {
-            Swift.Result {
-                let data = try UsageAnalyticsReader.read(since: since)
-                return (data, Array(Set(data.records.map(\.app))).sorted(),
-                        Array(Set(data.records.map(\.provider))).sorted(), Array(Set(data.records.map(\.model))).sorted())
-            }
-        }.value
+        let result = await Task.detached(priority: .utility) { Swift.Result { try UsageStats.read() } }.value
         guard !Task.isCancelled else { return }
         switch result {
-        case .success(let (data, apps, providers, models)):
-            records = data.records; self.apps = apps; self.providers = providers; self.models = models
-            truncated = data.truncated; error = nil; updated = Date(); revision += 1
+        case .success(let data):
+            dataset = data; error = nil; updated = Date(); revision += 1
         case .failure(let failure): error = failure.localizedDescription
         }
         do { history = try await QuotaHistoryStore().read(); historyError = nil }
@@ -64,28 +88,66 @@ private enum UsageTab: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 private enum UsageMetric: String, CaseIterable, Identifiable {
-    case tokens = "Token", calls = "调用", cost = "费用"
+    case tokens = "Tokens", requests = "请求", cost = "成本"
     var id: String { rawValue }
 }
+private enum UsageTable: String, CaseIterable, Identifiable {
+    case logs = "请求日志", providers = "供应商", models = "模型"
+    var id: String { rawValue }
+}
+
+private let allApps = "", allProviders = "", allModels = ""
+private let tablePageSize = 20
+
+private func friendlyApp(_ raw: String) -> String {
+    switch raw {
+    case "claude": return "Claude Code"
+    case "codex": return "Codex"
+    case "gemini": return "Gemini"
+    case "grokbuild": return "Grok Build"
+    case "opencode": return "OpenCode"
+    case "pi": return "Pi"
+    default: return raw
+    }
+}
+private func usd(_ d: Decimal, _ digits: Int = 4) -> String { UsageFormat.usd(NSDecimalNumber(decimal: d).doubleValue, decimals: digits) }
+
+private let timeToday: DateFormatter = { let f = DateFormatter(); f.dateFormat = "HH:mm:ss"; return f }()
+private let timeOther: DateFormatter = { let f = DateFormatter(); f.dateFormat = "MM-dd HH:mm"; return f }()
+private let timeFull: DateFormatter = { let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm:ss"; return f }()
+private let dayFormat: DateFormatter = { let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; return f }()
+private let monthFormat: DateFormatter = { let f = DateFormatter(); f.dateFormat = "M月"; return f }()
+
 struct UsageDashboard: View {
     @ObservedObject var data: UsageDashboardModel
     @Environment(\.glassSnapshot) private var preview
     @State private var tab: UsageTab = .calls
     @State private var period: UsagePeriod = .week
+    @State private var range: UsageRange = .week
     @State private var metric: UsageMetric = .tokens
-    @State private var app = "全部工具"
-    @State private var provider = "全部服务商"
-    @State private var model = "全部模型"
+    @State private var heatMetric: UsageHeatmapMetric = .tokens
+    @State private var table: UsageTable = .logs
+    @State private var statusFilter = 0
+    @State private var page = 0
+    @State private var app = allApps
+    @State private var provider = allProviders
+    @State private var model = allModels
     @State private var quotaProvider = "Codex API"
     @State private var windowID = "wallet"
     @State private var selectedDate: Date?
     @State private var showMore = false
+    @State private var detail: String?
+    @State private var heatWidth: CGFloat = 0
     var recordingError: String?
 
-    private var rows: [UsageRecord] { data.report.rows }
-    private var totals: UsageTotals { data.report.totals }
-    private var buckets: [UsageReport.Bucket] { data.report.buckets }
-    private var reportKey: [String] { [String(data.revision), period.rawValue, app, provider, model] }
+    private var report: UsageStatsReport { data.prepared.report }
+    private var totals: UsageTotals { report.totals }
+    private var filter: UsageFilter {
+        UsageFilter(app: app == allApps ? nil : app, provider: provider == allProviders ? nil : provider,
+                    model: model == allModels ? nil : model)
+    }
+    private var reportKey: [String] { [String(data.revision), range.rawValue, app, provider, model] }
+    private var heatmapKey: [String] { [String(data.revision), heatMetric.rawValue, app, provider, model] }
     private var history: [QuotaHistoryPoint] {
         let start = period.start
         return data.history.filter { $0.provider == quotaProvider && $0.date >= start }.sorted { $0.date < $1.date }
@@ -105,15 +167,25 @@ struct UsageDashboard: View {
                 GlassSegmented(options: UsageTab.allCases, selection: $tab) { $0.rawValue }
                     .frame(maxWidth: 260)
                 Spacer(minLength: 4)
+                if let updated = data.updated {
+                    TimelineView(.periodic(from: .now, by: 30)) { context in
+                        Text(UsageFormat.relative(updated, now: context.date) + "同步")
+                            .font(.system(size: 11)).foregroundStyle(Palette.dim)
+                    }
+                }
                 Button { Task { await data.reload() } } label: { Image(systemName: "arrow.clockwise") }
                     .buttonStyle(GlassButtonStyle(circle: true, loading: data.loading))
                     .disabled(data.loading).help("刷新本机用量记录").accessibilityLabel("刷新用量")
             }
-            HStack {
-                Text("时间范围").font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.dim)
-                Spacer()
-                GlassSegmented(options: UsagePeriod.allCases, selection: $period) { $0.rawValue }
-                    .frame(maxWidth: 240)
+            if tab == .calls {
+                GlassSegmented(options: UsageRange.allCases, selection: $range) { $0.rawValue }
+            } else {
+                HStack {
+                    Text("时间范围").font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.dim)
+                    Spacer()
+                    GlassSegmented(options: UsagePeriod.allCases, selection: $period) { $0.rawValue }
+                        .frame(maxWidth: 240)
+                }
             }
             if tab == .calls { callContent } else { quotaContent }
         }
@@ -127,28 +199,33 @@ struct UsageDashboard: View {
         }
         .task(id: reportKey) {
             guard !preview else { return }
-            await data.prepare(key: reportKey, since: period.start, hourly: period == .today,
-                               app: app == "全部工具" ? nil : app,
-                               provider: provider == "全部服务商" ? nil : provider,
-                               model: model == "全部模型" ? nil : model)
+            await data.prepare(key: reportKey, range: range, filter: filter)
+        }
+        .task(id: heatmapKey) {
+            guard !preview else { return }
+            await data.prepareHeatmap(key: heatmapKey, metric: heatMetric, filter: filter)
         }
         .onChange(of: quotaProvider) { _, _ in windowID = quotaWindows.first?.0 ?? "wallet" }
         .onChange(of: period) { _, _ in
-            selectedDate = nil; showMore = false
             if !quotaWindows.contains(where: { $0.0 == windowID }) { windowID = quotaWindows.first?.0 ?? "wallet" }
         }
+        .onChange(of: reportKey) { _, _ in selectedDate = nil; page = 0; detail = nil }
+        .onChange(of: table) { _, _ in page = 0; detail = nil }
+        .onChange(of: statusFilter) { _, _ in page = 0 }
         .onChange(of: data.history.count) { _, _ in
             if !quotaProviders.contains(quotaProvider) { quotaProvider = quotaProviders.first ?? "Codex API" }
             if !quotaWindows.contains(where: { $0.0 == windowID }) { windowID = quotaWindows.first?.0 ?? "wallet" }
         }
     }
 
+    // MARK: 调用统计
+
     private var callContent: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
-                filter("工具", selection: $app, all: "全部工具", values: data.apps)
-                filter("服务商", selection: $provider, all: "全部服务商", values: data.providers)
-                filter("模型", selection: $model, all: "全部模型", values: data.models)
+                filterMenu("应用", selection: $app, all: "全部应用", values: data.apps, label: friendlyApp)
+                filterMenu("供应商", selection: $provider, all: "全部供应商", values: data.providers) { $0 }
+                filterMenu("模型", selection: $model, all: "全部模型", values: data.models) { $0 }
             }
             if data.preparing {
                 HStack(spacing: 7) {
@@ -157,127 +234,416 @@ struct UsageDashboard: View {
                 }
             }
             if let error = data.error { notice(error, warning: true) }
-            if data.truncated { notice("记录超过 20 万条，当前仅展示最近部分，统计不完整。", warning: true) }
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
-                metricCard("总 Token", value: rows.isEmpty ? "—" : compact(totals.tokens), detail: "含输入、输出和缓存", tint: Palette.accent)
-                metricCard("记录费用", value: totals.priced == 0 ? "—" : money(totals.cost), detail: "CC Switch 记录中的估算", tint: Palette.mint)
-                metricCard("调用记录", value: rows.isEmpty ? "—" : "\(totals.requests)", detail: "成功率 " + percent(totals.successRate), tint: Palette.blue)
-                metricCard("缓存命中", value: percent(totals.hitRate), detail: "缓存读取 / 全部输入", tint: Palette.lilac)
-            }
-            if rows.isEmpty {
-                emptyState(icon: data.loading ? nil : "chart.xyaxis.line",
-                           title: data.loading ? "正在读取本机用量" : "暂无调用记录",
-                           detail: data.loading ? "" : "该筛选范围没有调用记录。可扩大时间范围或切换工具。",
-                           loading: data.loading)
+            heroCards
+            moreMetrics
+            if data.updated == nil && data.error == nil {
+                emptyState(icon: nil, title: "正在读取本机用量", detail: "", loading: true)
+            } else if totals.requests == 0 {
+                emptyState(icon: "chart.xyaxis.line", title: "暂无调用记录",
+                           detail: "该筛选范围没有调用记录。可扩大时间范围，或把应用、供应商、模型切回“全部”。",
+                           loading: false)
             } else {
                 trend
-                modelBreakdown
-                recentCalls
             }
-            Text("来源：本机 CC Switch 已保留的明细记录。未被它记录的调用和已归档明细不在统计内；费用受其定价配置影响，不等同于账单。")
-                .font(.system(size: 10)).foregroundStyle(Palette.dim)
-            if totals.priced < totals.requests && !rows.isEmpty {
-                Text("\(totals.requests - totals.priced) 条记录未提供费用，仅合计已有金额。")
-                    .font(.system(size: 10)).foregroundStyle(Palette.warning)
-            }
-            if let date = data.updated {
-                Text("读取于 " + date.formatted(date: .abbreviated, time: .shortened)).font(.system(size: 10)).foregroundStyle(Palette.dim)
+            if (data.updated != nil || data.error != nil) { heatmapCard }
+            if totals.requests > 0 { tables }
+            VStack(alignment: .leading, spacing: 4) {
+                Text("来源：本机 CC Switch 的请求日志与按天汇总（明细保留约 30 天，更早的按天合并）。金额按 CC Switch 的价格表计算，未定价的请求不计入，不等同于账单。")
+                    .font(.system(size: 10)).foregroundStyle(Palette.dim)
+                if data.prepared.unpriced > 0 {
+                    Text("\(data.prepared.unpriced) 条请求未定价").font(.system(size: 10)).foregroundStyle(Palette.warning)
+                }
             }
         }
     }
 
+    private var heroCards: some View {
+        let empty = totals.requests == 0
+        return LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 14) {
+            metricCard("总成本", value: empty ? "—" : UsageFormat.usd(totals.cost, decimals: 2), detail: "按 CC Switch 价格表计算", tint: Palette.mint)
+                .help(empty ? "" : UsageFormat.usd(totals.cost, decimals: 6))
+            metricCard("总请求数", value: empty ? "—" : "\(totals.requests)", detail: "成功率 " + UsageFormat.rate(totals.successRate), tint: Palette.blue)
+            metricCard("真实消耗 Tokens", value: empty ? "—" : UsageFormat.tokens(totals.realTokens), detail: "输入+输出+缓存", tint: Palette.accent)
+            metricCard("缓存命中率", value: empty ? "—" : UsageFormat.rate(totals.hitRate), detail: "缓存读取 / 全部输入", tint: Palette.lilac)
+        }
+    }
+
+    private var moreMetrics: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button { withAnimation(.easeOut(duration: 0.15)) { showMore.toggle() } } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
+                        .rotationEffect(.degrees(showMore ? 90 : 0))
+                    Text("更多指标").font(.system(size: 11, weight: .medium))
+                }.foregroundStyle(Palette.dim).contentShape(Rectangle())
+            }.buttonStyle(.plain)
+            if showMore {
+                HStack(spacing: 0) {
+                    moreItem("新增输入", totals.freshInput)
+                    moreItem("输出", totals.output)
+                    moreItem("缓存创建", totals.cacheWrite)
+                    moreItem("缓存命中", totals.cacheRead)
+                }
+            }
+        }
+    }
+    private func moreItem(_ title: String, _ value: Double) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.system(size: 10)).foregroundStyle(Palette.dim)
+            Text(totals.requests == 0 ? "—" : UsageFormat.tokens(value)).font(.system(size: 15, weight: .medium)).monospacedDigit().foregroundStyle(Palette.text)
+        }.frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14).glassCard(radius: 12).padding(.trailing, 6)
+    }
+
+    // MARK: 趋势
+
     private var trend: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        let buckets = report.buckets
+        let unit: Calendar.Component = report.hourly ? .hour : .day
+        return VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("用量趋势").font(.system(size: 14, weight: .semibold)).foregroundStyle(Palette.text)
+                Text("使用趋势 · \(range.rawValue)").font(.system(size: 14, weight: .semibold)).foregroundStyle(Palette.text)
                 Spacer()
-                menuPicker("统计指标", selection: $metric, options: UsageMetric.allCases) { $0.rawValue }
-                    .frame(width: 132)
+                GlassSegmented(options: UsageMetric.allCases, selection: $metric) { $0.rawValue }.frame(width: 210)
             }
             Chart {
                 ForEach(buckets) { bucket in
-                    if metric == .tokens {
-                        BarMark(x: .value("时间", bucket.date, unit: period == .today ? .hour : .day), y: .value("Token", bucket.totals.input)).foregroundStyle(by: .value("类别", "输入"))
-                        BarMark(x: .value("时间", bucket.date, unit: period == .today ? .hour : .day), y: .value("Token", bucket.totals.output)).foregroundStyle(by: .value("类别", "输出"))
-                        BarMark(x: .value("时间", bucket.date, unit: period == .today ? .hour : .day), y: .value("Token", bucket.totals.cacheRead)).foregroundStyle(by: .value("类别", "缓存读取"))
-                        BarMark(x: .value("时间", bucket.date, unit: period == .today ? .hour : .day), y: .value("Token", bucket.totals.cacheWrite)).foregroundStyle(by: .value("类别", "缓存写入"))
-                    } else {
-                        BarMark(x: .value("时间", bucket.date, unit: period == .today ? .hour : .day), y: .value(metric.rawValue, metric == .calls ? Double(bucket.totals.requests) : bucket.totals.cost))
-                            .foregroundStyle(Palette.accent).cornerRadius(3)
+                    let x = PlottableValue.value("时间", bucket.start, unit: unit)
+                    switch metric {
+                    case .tokens:
+                        BarMark(x: x, y: .value("Tokens", bucket.totals.freshInput)).foregroundStyle(by: .value("类别", "新增输入"))
+                        BarMark(x: x, y: .value("Tokens", bucket.totals.output)).foregroundStyle(by: .value("类别", "输出"))
+                        BarMark(x: x, y: .value("Tokens", bucket.totals.cacheWrite)).foregroundStyle(by: .value("类别", "缓存创建"))
+                        BarMark(x: x, y: .value("Tokens", bucket.totals.cacheRead)).foregroundStyle(by: .value("类别", "缓存命中"))
+                    case .requests:
+                        BarMark(x: x, y: .value("请求", bucket.totals.requests)).foregroundStyle(Palette.blue).cornerRadius(2)
+                    case .cost:
+                        BarMark(x: x, y: .value("成本", bucket.totals.cost)).foregroundStyle(Palette.mint).cornerRadius(2)
                     }
                 }
-                if let selectedDate {
-                    RuleMark(x: .value("选择时间", selectedDate)).foregroundStyle(Palette.dim)
-                }
+                if let selectedDate { RuleMark(x: .value("选择时间", selectedDate, unit: unit)).foregroundStyle(Palette.dim.opacity(0.5)) }
             }
-            .chartForegroundStyleScale(["输入": Palette.blue, "输出": Palette.mint, "缓存读取": Palette.lilac, "缓存写入": Palette.warning])
+            .chartForegroundStyleScale(["新增输入": Palette.blue, "输出": Palette.mint, "缓存创建": Palette.warning, "缓存命中": Palette.lilac])
+            .chartLegend(metric == .tokens ? .visible : .hidden)
             .chartXSelection(value: $selectedDate)
-            .chartYAxis { AxisMarks(position: .leading) }
-            .frame(height: 180)
-            if let selectedDate, let bucket = buckets.min(by: { abs($0.date.timeIntervalSince(selectedDate)) < abs($1.date.timeIntervalSince(selectedDate)) }) {
-                Text(bucket.date.formatted(date: .abbreviated, time: period == .today ? .shortened : .omitted)
-                     + " · \(bucket.totals.requests) 次 · \(compact(bucket.totals.tokens)) Token · \(money(bucket.totals.cost))")
-                    .font(.system(size: 11)).foregroundStyle(Palette.dim).monospacedDigit()
-            } else {
-                Text("点选图表查看分时数据 · " + (period == .today ? "按小时统计" : "按天统计"))
-                    .font(.system(size: 11)).foregroundStyle(Palette.dim)
-            }
-        }.padding(16).glassCard()
-    }
-
-    private var modelBreakdown: some View {
-        let groups = data.report.models
-        return VStack(alignment: .leading, spacing: 12) {
-            Text("模型分布").font(.system(size: 14, weight: .semibold)).foregroundStyle(Palette.text)
-            ForEach(Array(groups.prefix(8)), id: \.0) { name, total in
-                VStack(spacing: 5) {
-                    HStack {
-                        Text(name).lineLimit(1).help(name)
-                        Spacer()
-                        Text(compact(total.tokens)).monospacedDigit()
-                        Text(total.priced > 0 ? money(total.cost) : "—").foregroundStyle(Palette.dim).frame(width: 80, alignment: .trailing)
-                    }.font(.system(size: 12)).foregroundStyle(Palette.text)
-                    GeometryReader { geometry in
-                        Capsule().fill(Palette.accent.opacity(0.65)).frame(width: geometry.size.width * (totals.tokens > 0 ? total.tokens / totals.tokens : 0))
-                    }.frame(height: 3).background(Capsule().fill(Palette.subtle))
-                }
-            }
-            if groups.count > 8 { Text("展示用量最高的 8 个模型，可通过模型筛选查看其余记录。").font(.system(size: 10.5)).foregroundStyle(Palette.dim) }
-        }.padding(16).glassCard()
-    }
-
-    private var recentCalls: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("最近调用").font(.system(size: 14, weight: .semibold)).foregroundStyle(Palette.text)
-                Spacer()
-                Text("Token / USD").font(.system(size: 10)).foregroundStyle(Palette.dim)
-            }
-            ForEach(Array(rows.prefix(showMore ? 50 : 8).enumerated()), id: \.element.id) { index, row in
-                VStack(spacing: 9) {
-                    if index > 0 { Divider().overlay(Palette.border) }
-                    HStack(spacing: 9) {
-                    Image(systemName: row.succeeded == true ? "checkmark.circle" : row.succeeded == false ? "exclamationmark.circle" : "minus.circle")
-                        .foregroundStyle(row.succeeded == true ? Palette.mint : row.succeeded == false ? Palette.warning : Palette.dim)
-                        .help(row.status.map { "HTTP \($0)" } ?? "未提供状态")
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(row.model).font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.text).lineLimit(1)
-                        Text(row.app + " · " + row.provider + " · " + row.date.formatted(date: .abbreviated, time: .shortened))
-                            .font(.system(size: 10.5)).foregroundStyle(Palette.dim).lineLimit(1)
+            .chartXAxis {
+                if report.hourly {
+                    AxisMarks(values: .stride(by: .hour, count: 4)) { _ in
+                        AxisGridLine(); AxisValueLabel(format: .dateTime.hour(.twoDigits(amPM: .omitted)))
                     }
-                    Spacer(minLength: 4)
-                    VStack(alignment: .trailing, spacing: 3) {
-                        Text(compact(row.tokens)).font(.system(size: 12)).foregroundStyle(Palette.text)
-                        Text(row.cost.map(money) ?? "—").font(.system(size: 10.5)).foregroundStyle(Palette.dim)
-                    }.monospacedDigit()
-                    }.accessibilityElement(children: .combine)
+                } else {
+                    AxisMarks { _ in AxisGridLine(); AxisValueLabel(format: .dateTime.month().day()) }
                 }
             }
-            if rows.count > 8 {
-                Button(showMore ? "收起明细" : "展开最近 50 条") { showMore.toggle() }.buttonStyle(GlassButtonStyle(compact: true))
+            .chartYAxis {
+                AxisMarks(position: .leading) { value in
+                    AxisGridLine()
+                    AxisValueLabel {
+                        if let number = value.as(Double.self) {
+                            Text(metric == .tokens ? UsageFormat.tokens(number)
+                                 : metric == .requests ? UsageFormat.tokens(number) : UsageFormat.usd(number, decimals: number < 1 ? 2 : 0))
+                        }
+                    }
+                }
             }
-        }.padding(16).glassCard()
+            .frame(height: 190)
+            Group {
+                if let selectedDate, let bucket = buckets.min(by: { abs($0.start.timeIntervalSince(selectedDate)) < abs($1.start.timeIntervalSince(selectedDate)) }) {
+                    Text((report.hourly ? timeFull.string(from: bucket.start).dropLast(3) : Substring(dayFormat.string(from: bucket.start)))
+                         + " · \(bucket.totals.requests) 次 · \(UsageFormat.tokens(bucket.totals.realTokens)) Tokens · \(UsageFormat.usd(bucket.totals.cost, decimals: 4))")
+                } else {
+                    Text("点选图表查看明细 · " + (report.hourly ? "按小时统计" : "按天统计"))
+                }
+            }.font(.system(size: 11)).foregroundStyle(Palette.dim).monospacedDigit()
+        }.padding(18).glassCard()
     }
+
+    // MARK: 热力图
+
+    private static let heatSpacing: CGFloat = 2
+    private func heatColor(_ day: UsageHeatmap.Day) -> Color { heatColor(level: day.level, future: day.future) }
+    private func heatColor(level: Int, future: Bool = false) -> Color {
+        if future { return Palette.subtle.opacity(0.35) }
+        switch level {
+        case 0: return Palette.subtle
+        case 1: return Palette.mint.opacity(0.3)
+        case 2: return Palette.mint.opacity(0.5)
+        case 3: return Palette.mint.opacity(0.75)
+        default: return Palette.mint
+        }
+    }
+    private func heatValue(_ value: Double) -> String {
+        switch heatMetric {
+        case .tokens: return UsageFormat.tokens(value) + " Tokens"
+        case .requests: return "\(Int(value)) 次请求"
+        case .cost: return UsageFormat.usd(value, decimals: 4)
+        }
+    }
+    private var heatmapCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("用量热力图").font(.system(size: 14, weight: .semibold)).foregroundStyle(Palette.text)
+                Spacer()
+                GlassSegmented(options: UsageHeatmapMetric.allCases, selection: $heatMetric) { $0.rawValue }.frame(width: 210)
+            }
+            if let weeks = data.heatmap?.weeks, !weeks.isEmpty {
+                heatGrid(weeks)
+            } else {
+                Text(data.loading ? "正在读取…" : "暂无数据").font(.system(size: 11)).foregroundStyle(Palette.dim)
+                    .frame(maxWidth: .infinity, minHeight: 100)
+            }
+            HStack(spacing: 4) {
+                Text("少").font(.system(size: 10)).foregroundStyle(Palette.dim)
+                ForEach(0..<5, id: \.self) { level in
+                    RoundedRectangle(cornerRadius: 2.5).fill(heatColor(level: level))
+                        .frame(width: 10, height: 10)
+                }
+                Text("多").font(.system(size: 10)).foregroundStyle(Palette.dim)
+            }
+        }.padding(18).glassCard()
+    }
+    private func heatCell(_ weeks: [[UsageHeatmap.Day]]) -> CGFloat {
+        let count = CGFloat(weeks.count)
+        let width = heatWidth > 0 ? heatWidth : 600
+        return max(8, min(11, ((width - (count - 1) * Self.heatSpacing) / count).rounded(.down)))
+    }
+    private func heatGrid(_ weeks: [[UsageHeatmap.Day]]) -> some View {
+        let calendar = Calendar.current
+        let gap = Self.heatSpacing
+        let cell = heatCell(weeks)
+        let width = heatWidth > 0 ? heatWidth : 600
+        let grid = HStack(alignment: .top, spacing: gap) {
+            ForEach(Array(weeks.enumerated()), id: \.offset) { _, week in
+                VStack(spacing: gap) {
+                    ZStack(alignment: .leading) {
+                        Color.clear.frame(width: cell, height: 12)
+                        if let first = week.first(where: { calendar.component(.day, from: $0.date) == 1 }) {
+                            Text(monthFormat.string(from: first.date)).font(.system(size: 9)).foregroundStyle(Palette.dim)
+                                .fixedSize().frame(width: cell, alignment: .leading)
+                        }
+                    }
+                    ForEach(week) { day in
+                        RoundedRectangle(cornerRadius: 2.5, style: .continuous).fill(heatColor(day))
+                            .frame(width: cell, height: cell)
+                            .help(day.future ? dayFormat.string(from: day.date) : dayFormat.string(from: day.date) + "  " + heatValue(day.value))
+                    }
+                }
+            }
+        }
+        return Group {
+            if CGFloat(weeks.count) * (cell + gap) > width + 1 {
+                ScrollView(.horizontal, showsIndicators: false) { grid }
+                    .defaultScrollAnchor(.trailing)
+            } else {
+                grid
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: 12 + CGFloat(7) * (cell + gap) + 4)
+        .background(GeometryReader { proxy in
+            Color.clear
+                .onAppear { heatWidth = proxy.size.width }
+                .onChange(of: proxy.size.width) { _, new in heatWidth = new }
+        })
+    }
+
+    // MARK: 表格
+
+    private var tables: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            GlassSegmented(options: UsageTable.allCases, selection: $table) { $0.rawValue }.frame(maxWidth: 300)
+            switch table {
+            case .logs: logTable
+            case .providers: groupTable(report.providers, providers: true)
+            case .models: groupTable(report.models, providers: false)
+            }
+        }.padding(18).glassCard()
+    }
+
+    private func pager(count: Int) -> some View {
+        let pages = max(1, (count + tablePageSize - 1) / tablePageSize)
+        return HStack(spacing: 10) {
+            Text("共 \(count) 条").font(.system(size: 11)).foregroundStyle(Palette.dim).monospacedDigit()
+            Spacer()
+            Button("上一页") { page = max(0, page - 1) }.buttonStyle(GlassButtonStyle(compact: true)).disabled(page <= 0)
+            Text("第 \(min(page, pages - 1) + 1) / \(pages) 页").font(.system(size: 11)).foregroundStyle(Palette.dim).monospacedDigit()
+            Button("下一页") { page = min(pages - 1, page + 1) }.buttonStyle(GlassButtonStyle(compact: true)).disabled(page >= pages - 1)
+        }
+    }
+    private func pageSlice<T>(_ items: [T]) -> ArraySlice<T> {
+        let pages = max(1, (items.count + tablePageSize - 1) / tablePageSize)
+        let start = min(page, pages - 1) * tablePageSize
+        return items[start..<min(items.count, start + tablePageSize)]
+    }
+
+    // Two-line cells (time over app, model over provider) keep all nine CC Switch columns inside
+    // the 640 pt content width, so cost and speed never scroll off.
+    private enum Col { static let time: CGFloat = 92, model: CGFloat = 158, number: CGFloat = 56, cost: CGFloat = 70, speed: CGFloat = 70 }
+
+    private var logTable: some View {
+        let logs = data.prepared.logs(status: statusFilter == 0 ? nil : statusFilter)
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("状态码").font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.dim)
+                menuPicker("状态码", selection: $statusFilter, options: [0] + UsagePrepared.statuses) { $0 == 0 ? "全部" : "\($0)" }
+                    .frame(width: 100)
+                Spacer()
+            }
+            if logs.isEmpty {
+                Text(statusFilter == 0 ? "该范围内没有明细请求（更早的数据已按天合并，仅计入统计）。" : "没有状态码为 \(statusFilter) 的请求。")
+                    .font(.system(size: 11)).foregroundStyle(Palette.dim).frame(maxWidth: .infinity, minHeight: 80)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    logRow(header: true, nil)
+                    ForEach(pageSlice(logs)) { log in
+                        GlassDivider()
+                        logRow(header: false, log)
+                    }
+                }
+                pager(count: logs.count)
+            }
+        }
+    }
+
+    private func cell(_ text: String, _ width: CGFloat, header: Bool = false, trailing: Bool = false, dim: Bool = false) -> some View {
+        Text(text).font(.system(size: header ? 10.5 : 11.5, weight: header ? .medium : .regular))
+            .foregroundStyle(header || dim ? Palette.dim : Palette.text).monospacedDigit().lineLimit(1)
+            .frame(width: width, alignment: trailing ? .trailing : .leading)
+    }
+
+    @ViewBuilder private func logRow(header: Bool, _ log: UsageLog?) -> some View {
+        if let log {
+            let today = Calendar.current.isDateInToday(log.date)
+            let speed = log.speed.map { UsageFormat.tokensPerSecond($0) }
+                ?? log.estimatedSpeed.map { UsageFormat.tokensPerSecond($0, estimated: true) } ?? "—"
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
+                        cell((today ? timeToday : timeOther).string(from: log.date), log.succeeded ? Col.time : Col.time - 34)
+                        if !log.succeeded {
+                            Text("\(log.status)").font(.system(size: 9.5, weight: .medium)).monospacedDigit().foregroundStyle(Palette.danger)
+                                .padding(.horizontal, 4).padding(.vertical, 1)
+                                .background(Palette.danger.opacity(0.14), in: RoundedRectangle(cornerRadius: 4))
+                        }
+                    }
+                    cell(friendlyApp(log.app), Col.time, dim: true).font(.system(size: 10))
+                }.frame(width: Col.time, alignment: .leading)
+                VStack(alignment: .leading, spacing: 2) {
+                    cell(log.model, Col.model)
+                    cell(log.provider, Col.model, dim: true).font(.system(size: 10))
+                }.frame(width: Col.model, alignment: .leading)
+                Spacer(minLength: 0)
+                cell(UsageFormat.tokens(log.displayInput), Col.number, trailing: true)
+                cell(UsageFormat.tokens(log.output), Col.number, trailing: true)
+                cell(log.cacheRead > 0 ? UsageFormat.tokens(log.cacheRead) : "—", Col.number, trailing: true)
+                cell(log.costState == .unpriced ? "未定价" : UsageFormat.usd(log.cost, decimals: 4), Col.cost, trailing: true,
+                     dim: log.costState == .unpriced)
+                    .help(log.costState == .estimated ? "按价格表估算" : "")
+                cell(speed, Col.speed, trailing: true)
+            }
+            .padding(.vertical, 8).contentShape(Rectangle())
+            .onTapGesture { detail = log.id }
+            .help(log.model)
+            .popover(isPresented: Binding(get: { detail == log.id }, set: { if !$0 && detail == log.id { detail = nil } }), arrowEdge: .bottom) {
+                logDetail(log)
+            }
+        } else {
+            HStack(spacing: 8) {
+                cell("时间 / 应用", Col.time, header: true)
+                cell("模型 / 供应商", Col.model, header: true)
+                Spacer(minLength: 0)
+                cell("新增输入", Col.number, header: true, trailing: true); cell("输出", Col.number, header: true, trailing: true)
+                cell("缓存读取", Col.number, header: true, trailing: true); cell("成本", Col.cost, header: true, trailing: true)
+                cell("速度", Col.speed, header: true, trailing: true)
+            }.padding(.bottom, 8)
+        }
+    }
+
+    private func logDetail(_ log: UsageLog) -> some View {
+        func ms(_ value: Double) -> String { String(format: "%.1f s", value / 1000) }
+        var basic: [(String, String)] = [("时间", timeFull.string(from: log.date)), ("应用", friendlyApp(log.app)),
+                                         ("供应商", log.provider), ("模型", log.model)]
+        if let request = log.requestModel, !request.isEmpty, request != log.model { basic.append(("请求模型", request)) }
+        if let pricing = log.pricingModel, !pricing.isEmpty, pricing != log.model { basic.append(("计价模型", pricing)) }
+        basic.append(("来源", log.isProxy ? "proxy (\(log.status))" : "会话日志"))
+        let tokens: [(String, String)] = [("新增输入", UsageFormat.tokens(log.displayInput) + (log.rawInput != log.displayInput ? "（原始 \(UsageFormat.tokens(log.rawInput))）" : "")),
+                                          ("输出", UsageFormat.tokens(log.output)), ("缓存读取", UsageFormat.tokens(log.cacheRead)),
+                                          ("缓存写入", UsageFormat.tokens(log.cacheWrite))]
+        var cost: [(String, String)] = []
+        if let parts = log.costParts {
+            cost = [("输入", usd(parts.input)), ("输出", usd(parts.output)), ("缓存读取", usd(parts.cacheRead)), ("缓存写入", usd(parts.cacheWrite))]
+        }
+        if log.multiplier != 1 { cost.append(("倍率", "\(log.multiplier)×")) }
+        cost.append(("总计", log.costState == .unpriced ? "未定价" : UsageFormat.usd(log.cost, decimals: 4)))
+        var perf: [(String, String)] = [("速度", log.speed.map { UsageFormat.tokensPerSecond($0) }
+                                         ?? log.estimatedSpeed.map { UsageFormat.tokensPerSecond($0, estimated: true) } ?? "—")]
+        perf.append(("首字", log.firstTokenMs.map { ms($0) } ?? "—"))
+        perf.append(("耗时", log.latencyMs > 0 ? ms(log.latencyMs) : "—"))
+        return VStack(alignment: .leading, spacing: 14) {
+            detailSection("基本", basic); detailSection("Tokens", tokens)
+            detailSection("成本", cost); detailSection("性能", perf)
+        }.padding(18).frame(width: 330)
+    }
+    private func detailSection(_ title: String, _ rows: [(String, String)]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.system(size: 11, weight: .semibold)).foregroundStyle(Palette.dim)
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                HStack(alignment: .firstTextBaseline) {
+                    Text(row.0).font(.system(size: 11.5)).foregroundStyle(Palette.dim)
+                    Spacer(minLength: 12)
+                    Text(row.1).font(.system(size: 11.5)).monospacedDigit().foregroundStyle(Palette.text)
+                        .multilineTextAlignment(.trailing).textSelection(.enabled)
+                }
+            }
+        }
+    }
+
+    private func groupTable(_ groups: [UsageGroup], providers: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            let rows = pageSlice(groups)
+            groupRow(nil, providers: providers, header: true).padding(.bottom, 8)
+            ForEach(rows) { group in
+                GlassDivider()
+                groupRow(group, providers: providers, header: false)
+            }
+            pager(count: groups.count).padding(.top, 12)
+        }
+    }
+    private func groupRow(_ group: UsageGroup?, providers: Bool, header: Bool) -> some View {
+        let t = group?.totals
+        func num(_ text: String, _ width: CGFloat) -> some View {
+            Text(text).font(.system(size: header ? 10.5 : 11.5, weight: header ? .medium : .regular))
+                .foregroundStyle(header ? Palette.dim : Palette.text).monospacedDigit().lineLimit(1)
+                .frame(width: width, alignment: .trailing)
+        }
+        return HStack(spacing: 8) {
+            if header {
+                Text(providers ? "供应商" : "模型").font(.system(size: 10.5, weight: .medium)).foregroundStyle(Palette.dim)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else if let group {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(group.name).font(.system(size: 11.5)).foregroundStyle(Palette.text).lineLimit(1)
+                    if providers, let app = group.app { Text(friendlyApp(app)).font(.system(size: 10)).foregroundStyle(Palette.dim) }
+                }.frame(maxWidth: .infinity, alignment: .leading).help(group.name)
+            }
+            num(header ? "请求数" : "\(t!.requests)", 58)
+            num(header ? "Tokens" : UsageFormat.tokens(t!.realTokens), 62)
+            num(header ? "成本" : UsageFormat.usd(t!.cost, decimals: 2), 62)
+            num(header ? "成功率" : UsageFormat.rate(t!.successRate), 54)
+            num(header ? "速度" : (t!.speed.map { UsageFormat.tokensPerSecond($0.value, estimated: $0.estimated) } ?? "—"), 84)
+            if !providers { num(header ? "平均成本" : (t!.averageCost.map { UsageFormat.usd($0, decimals: 4) } ?? "—"), 66) }
+        }.padding(.vertical, header ? 0 : 7)
+    }
+
+    private func filterMenu(_ title: String, selection: Binding<String>, all: String, values: [String], label: @escaping (String) -> String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title).font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.dim)
+            menuPicker(title, selection: selection, options: [""] + values) { $0.isEmpty ? all : label($0) }
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    // MARK: 额度趋势
 
     private var quotaContent: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -361,13 +727,6 @@ struct UsageDashboard: View {
         }.padding(16).glassCard()
     }
 
-    private func filter(_ title: String, selection: Binding<String>, all: String, values: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(title).font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.dim)
-            menuPicker(title, selection: selection, options: [all] + values) { $0 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
     private func menuPicker<Value: Hashable>(_ title: String, selection: Binding<Value>, options: [Value], label: @escaping (Value) -> String) -> some View {
         Menu {
             ForEach(Array(options.enumerated()), id: \.offset) { _, option in
@@ -405,7 +764,7 @@ struct UsageDashboard: View {
             }
             Text(value).font(.system(size: 26, weight: .medium)).monospacedDigit().foregroundStyle(Palette.text).lineLimit(1).minimumScaleFactor(0.65)
             Text(detail).font(.system(size: 10)).foregroundStyle(Palette.dim).lineLimit(1)
-        }.frame(maxWidth: .infinity, alignment: .leading).padding(18).glassCard(radius: 12)
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(18).glassCard()
     }
     private func notice(_ text: String, warning: Bool) -> some View {
         Label(text, systemImage: warning ? "exclamationmark.circle" : "chart.xyaxis.line")
@@ -429,7 +788,5 @@ struct UsageDashboard: View {
         .padding(16)
         .glassCard(radius: 12)
     }
-    private func compact(_ n: Double) -> String { n.formatted(.number.notation(.compactName).precision(.fractionLength(0...1))) }
     private func money(_ n: Double) -> String { n.formatted(.currency(code: "USD").precision(.fractionLength(2...4))) }
-    private func percent(_ n: Double?) -> String { n.map { $0.formatted(.percent.precision(.fractionLength(1))) } ?? "—" }
 }

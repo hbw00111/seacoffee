@@ -22,14 +22,19 @@ enum Checks {
         let telemetry = TelemetryTests(); let monitor = SessionMonitorTests()
         let checks: [(String, () async throws -> Void)] = [
             ("usage cache normalization", UsageAnalyticsTests().normalization),
-            ("usage totals and unknown values", UsageAnalyticsTests().totals),
-            ("usage database read-only and date filtering", UsageAnalyticsTests().database),
+            ("usage statistics matching CC Switch: dedup, cost, speed, rollups, heatmap", UsageAnalyticsTests().statistics),
+            ("model pricing candidates in CC Switch order", ModelPricingTests().candidates),
+            ("model pricing exact and prefix lookup", ModelPricingTests().lookup),
+            ("cost calculation by input semantics and multiplier", ModelPricingTests().cost),
+            ("usage formatting matches CC Switch strings", UsageFormatTests().formatting),
             ("quota history persistence, retention and isolation", UsageAnalyticsTests().quotaHistory),
             ("quota color boundaries", {
                 expectEqual(QuotaLevel(fraction: 0.5), .healthy)
-                expectEqual(QuotaLevel(fraction: 0.49), .warning)
-                expectEqual(QuotaLevel(fraction: 0.2), .warning)
-                expectEqual(QuotaLevel(fraction: 0.19), .low)
+                expectEqual(QuotaLevel(fraction: 0.2), .healthy)
+                expectEqual(QuotaLevel(fraction: 0.195), .healthy)
+                expectEqual(QuotaLevel(fraction: 0.19), .warning)
+                expectEqual(QuotaLevel(fraction: 0.01), .warning)
+                expectEqual(QuotaLevel(fraction: 0.004), .low)
                 expectEqual(QuotaLevel(fraction: 0), .low)
                 expectEqual(QuotaLevel(fraction: nil), .unknown)
                 expectEqual(QuotaLevel(fraction: .nan), .unknown)

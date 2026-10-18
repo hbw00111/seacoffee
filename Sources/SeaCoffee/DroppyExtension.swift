@@ -357,7 +357,7 @@ private struct SeaCoffeeQuotaRow: View {
                         }.frame(height: 4)
                         .accessibilityLabel("剩余 \(quota.percent)%")
                         if let resetsAt = quota.resetsAt, !compact {
-                            Text("重置：\(resetsAt.formatted(date: .abbreviated, time: .shortened))")
+                            Text(UsageFormat.resetText(resetsAt) ?? "已到重置时间 · 待刷新")
                                 .font(.system(size: 9)).foregroundStyle(.secondary)
                         }
                     }

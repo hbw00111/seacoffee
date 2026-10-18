@@ -102,7 +102,8 @@ public enum UsageDecoder {
             let minutes = number(w["windowDurationMins"]) ?? number(w["window_minutes"])
             let label: String
             if let minutes {
-                label = minutes >= 1440 ? "\(Int(minutes / 1440)) 天" : "\(Int(minutes / 60)) 小时"
+                // CC Switch names the standard windows: 5 小时, 每周, 30 天.
+                label = minutes == 10_080 ? "每周" : minutes >= 1440 ? "\(Int(minutes / 1440)) 天" : "\(Int(minutes / 60)) 小时"
             } else { label = key == "primary" ? "主额度" : "次额度" }
             quotas.append(Quota(id: key, label: label, remaining: 100 - used, limit: 100, monetary: false,
                                 resetsAt: date(w["resetsAt"] ?? w["resets_at"])))

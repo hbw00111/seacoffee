@@ -69,7 +69,7 @@ public enum ClaudeProtocol {
     public static func usage(_ data: Data) throws -> UsageSnapshot {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw ClaudeError.invalidResponse }
         let windows = [("five_hour", "5 小时"), ("seven_day", "每周"),
-                       ("seven_day_sonnet", "Sonnet 每周"), ("seven_day_opus", "Opus 每周")]
+                       ("seven_day_sonnet", "每周 Sonnet"), ("seven_day_opus", "每周 Opus")]
         let quotas = windows.compactMap { key, label -> Quota? in
             // A window without utilization is unknown, not unused.
             guard let window = root[key] as? [String: Any],

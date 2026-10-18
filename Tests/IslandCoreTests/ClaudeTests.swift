@@ -6,7 +6,7 @@ final class ClaudeTests {
 
     func windows() throws {
         let usage = try ClaudeProtocol.usage(data(#"{"five_hour":{"utilization":27.4,"resets_at":"2026-09-26T15:00:00.123Z"},"seven_day":{"utilization":0,"resets_at":null},"seven_day_opus":{"utilization":null},"seven_day_sonnet":{"utilization":112},"extra_usage":{"is_enabled":false}}"#))
-        expectEqual(usage.quotas.map(\.label), ["5 小时", "每周", "Sonnet 每周"])
+        expectEqual(usage.quotas.map(\.label), ["5 小时", "每周", "每周 Sonnet"])
         expectEqual(usage.quotas.map(\.percent), [73, 100, 0])
         expectEqual(usage.quotas.map(\.monetary), [false, false, false])
         expectEqual(usage.quotas.first?.resetsAt, UsageDecoder.date("2026-09-26T15:00:00.123Z"))
@@ -68,7 +68,7 @@ final class ClaudeTests {
             return expectEqual("nil", "usage", "screen should parse")
         }
         expectEqual(usage.quotas.map(\.id), ["claude-five_hour", "claude-seven_day", "claude-seven_day_sonnet"])
-        expectEqual(usage.quotas.map(\.label), ["5 小时", "每周", "Sonnet 每周"])
+        expectEqual(usage.quotas.map(\.label), ["5 小时", "每周", "每周 Sonnet"])
         expectEqual(usage.quotas.map(\.remaining), [81, 57.5, 80])
         expectEqual(usage.quotas.map(\.monetary), [false, false, false])
         guard usage.quotas.count == 3 else { return }
