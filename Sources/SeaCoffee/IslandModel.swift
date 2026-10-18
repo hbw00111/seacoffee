@@ -56,6 +56,9 @@ final class IslandModel: ObservableObject {
     @Published var notchHeight: CGFloat = 32
     @Published var hasNotch = false
     @Published var source: Provider
+    @Published var usageHistoryError: String?
+    private let usageHistory = QuotaHistoryStore()
+    private var recordsUsageHistory = false
     @Published var snapshot: UsageSnapshot?
     @Published var clineSnapshot: UsageSnapshot?
     @Published var clineMessage = "请连接 Cline 账号"
@@ -77,6 +80,8 @@ final class IslandModel: ObservableObject {
     @Published private(set) var watchedAgents: Set<Agent>
     var openSettings: (() -> Void)?
     var geometryChanged: (() -> Void)?
+    /// The host owns notification presentation when embedded as a Droppy extension.
+    var noticePresented: ((SessionState, NoticeKind) -> Void)?
     let account = OfficialAccount()
     let clineAccount = ClineAccount()
     let claudeAccount = ClaudeAccount()
@@ -88,12 +93,14 @@ final class IslandModel: ObservableObject {
     private var noticeTask: Task<Void, Never>?
     private var demoTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
+    private var authorizationTask: Task<Void, Never>?
+    private var stopped = false
     private var generation = UUID()
     private var noticeQueue: [(session: SessionState, kind: NoticeKind)] = []
     private var accountObservers: [AnyCancellable] = []
 
-    var site: String { UserDefaults.standard.string(forKey: "site") ?? "" }
-    var baseline: Double { let n = UserDefaults.standard.double(forKey: "baseline"); return n > 0 ? n : 100 }
+    var site: String { SeaCoffeePreferences.shared.string(forKey: "site") ?? "" }
+    var baseline: Double { let n = SeaCoffeePreferences.shared.double(forKey: "baseline"); return n > 0 ? n : 100 }
     /// Bumped when a top-up moves the baseline, so an open Settings window shows the new amount.
     @Published private(set) var baselineRevision = 0
     /// Up to two decimals, without trailing zeros, in a form `Double(_:)` parses back.
@@ -103,7 +110,7 @@ final class IslandModel: ObservableObject {
         if text.hasSuffix(".") { text.removeLast() }
         return text
     }
-    var sessionPath: String { UserDefaults.standard.string(forKey: "sessionPath") ?? "~/.codex/sessions" }
+    var sessionPath: String { SeaCoffeePreferences.shared.string(forKey: "sessionPath") ?? "~/.codex/sessions" }
     // Four quotas fold into a 2×2 grid, which needs a wider right wing.
     var compactWidth: CGFloat { max(290, notchWidth + (planLanes.count >= 3 ? 250 : 180)) }
     var headerHeight: CGFloat { hasNotch ? max(24, notchHeight) : 32 }
@@ -114,7 +121,6 @@ final class IslandModel: ObservableObject {
         122 + QuotaPresentation.height(QuotaPresentation.windows(displayedSnapshot, totalOnly: source == .sub2api).count)
             + planLanes.reduce(0) { $0 + QuotaPresentation.height(QuotaPresentation.windows($1.snapshot).count) + 0.5 }
     }
-    var surfaceTopInset: CGFloat { 0 }
     var animation: Animation { reduceMotion ? .easeOut(duration: 0.16) : .spring(response: 0.48, dampingFraction: 0.86) }
     var openingAnimation: Animation { reduceMotion ? .easeOut(duration: 0.1) : .spring(response: 0.32, dampingFraction: 0.9) }
     var closingAnimation: Animation { .easeOut(duration: reduceMotion ? 0.1 : 0.18) }
@@ -238,11 +244,11 @@ final class IslandModel: ObservableObject {
     }
     func setWatched(_ agent: Agent, _ on: Bool) {
         if on { watchedAgents.insert(agent) } else { watchedAgents.remove(agent) }
-        UserDefaults.standard.set(Agent.allCases.filter(watchedAgents.contains).map(\.rawValue), forKey: "watchedAgents")
+        SeaCoffeePreferences.shared.set(Agent.allCases.filter(watchedAgents.contains).map(\.rawValue), forKey: "watchedAgents")
         startMonitor()
     }
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = SeaCoffeePreferences.shared) {
         source = Provider(rawValue: defaults.string(forKey: "source") ?? "") ?? .sub2api
         reducedMotion = defaults.bool(forKey: "reducedMotion")
         hoverEnabled = defaults.object(forKey: "hoverEnabled") as? Bool ?? true
@@ -254,6 +260,7 @@ final class IslandModel: ObservableObject {
         clineAccount.onUsage = { [weak self] usage in
             guard let self else { return }
             withAnimation(self.animation) { self.clineSnapshot = usage }
+            self.recordUsage(usage, provider: "Cline Pass")
         }
         clineAccount.onLogout = { [weak self] in
             self?.clineSnapshot = nil
@@ -268,6 +275,7 @@ final class IslandModel: ObservableObject {
         claudeAccount.onUsage = { [weak self] usage in
             guard let self else { return }
             withAnimation(self.animation) { self.claudeSnapshot = usage }
+            self.recordUsage(usage, provider: "Claude")
         }
         claudeAccount.onDisconnect = { [weak self] in
             self?.claudeSnapshot = nil
@@ -278,6 +286,7 @@ final class IslandModel: ObservableObject {
         grokAccount.onUsage = { [weak self] usage in
             guard let self else { return }
             withAnimation(self.animation) { self.grokSnapshot = usage }
+            self.recordUsage(usage, provider: "Grok")
         }
         grokAccount.onDisconnect = { [weak self] in
             self?.grokSnapshot = nil
@@ -289,20 +298,41 @@ final class IslandModel: ObservableObject {
         account.onUsage = { [weak self] usage in
             guard let self, self.source == .official else { return }
             withAnimation(self.animation) { self.snapshot = usage }
+            self.recordUsage(usage, provider: "Codex 官方")
             self.refreshing = false
         }
     }
+    private func recordUsage(_ usage: UsageSnapshot, provider: String) {
+        guard recordsUsageHistory, !stopped else { return }
+        Task {
+            do {
+                try await usageHistory.record(provider: provider, usage: usage)
+                usageHistoryError = nil
+            } catch { usageHistoryError = "额度历史保存失败，原有记录已保留；当前额度查询不受影响。" }
+        }
+    }
     func start() {
+        recordsUsageHistory = true
+        stopped = false
+        refreshTimer?.invalidate()
         startMonitor(); refresh()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
     }
     func stop() {
+        recordsUsageHistory = false
+        stopped = true
+        authorizationTask?.cancel()
+        generation = UUID() // Ignore monitor deliveries already queued on the main actor.
+        noticeQueue.removeAll()
         monitor?.stop(); refreshTimer?.invalidate(); account.stop(); clineAccount.stop(); claudeAccount.stop(); grokAccount.stop()
         collapseTask?.cancel(); noticeTask?.cancel(); demoTask?.cancel(); refreshTask?.cancel()
+        refreshTimer = nil; monitor = nil
+        notice = nil; completion = nil; refreshing = false; demo = false
     }
     func startMonitor() {
+        guard !stopped else { return }
         monitor?.stop()
         let token = UUID(); generation = token
         monitor = SessionMonitor(sources: SessionSource.defaults(codexPath: sessionPath, enabled: watchedAgents)) { [weak self] update in
@@ -317,6 +347,7 @@ final class IslandModel: ObservableObject {
         monitor?.start()
     }
     func refresh() {
+        guard !stopped else { return }
         // Independent lanes: an API request or Keychain prompt must not block the other services.
         clineAccount.refresh()
         claudeAccount.refresh()
@@ -324,7 +355,7 @@ final class IslandModel: ObservableObject {
         refreshCodex()
     }
     private func refreshCodex() {
-        guard !refreshing else { return }
+        guard !stopped, !refreshing else { return }
         if source == .official { refreshing = true; account.refresh(); return }
         refreshing = true
         let site = site, baseline = baseline
@@ -342,7 +373,7 @@ final class IslandModel: ObservableObject {
                 guard !Task.isCancelled, source == .sub2api else { return }
                 serviceMessage = "已连接 · \(URL(string: site)?.host ?? "Sub2API")"
                 if usage.hasWallet, let balance = usage.balance {
-                    let defaults = UserDefaults.standard
+                    let defaults = SeaCoffeePreferences.shared
                     // Only a balance seen on the same site counts as "last time".
                     let previous = defaults.string(forKey: "walletLastSite") == site ? defaults.object(forKey: "walletLastBalance") as? Double : nil
                     if let rebased = WalletTopUp.rebasedBaseline(previousBalance: previous, currentBalance: balance, baseline: baseline) {
@@ -355,6 +386,7 @@ final class IslandModel: ObservableObject {
                     defaults.set(site, forKey: "walletLastSite")
                 }
                 withAnimation(animation) { snapshot = usage }
+                recordUsage(usage, provider: "Codex API")
             } catch {
                 guard !Task.isCancelled else { return }
                 serviceMessage = "\(error.localizedDescription)\(snapshot == nil ? "" : " · 保留上次数据")"
@@ -364,9 +396,9 @@ final class IslandModel: ObservableObject {
     }
     @Published var authorizingCredentials = false
     func authorizeCredentials() {
-        guard !authorizingCredentials else { return }
+        guard !stopped, !authorizingCredentials else { return }
         authorizingCredentials = true
-        Task {
+        authorizationTask = Task {
             defer { authorizingCredentials = false }
             do {
                 if source == .sub2api {
@@ -374,6 +406,7 @@ final class IslandModel: ObservableObject {
                     refreshCodex()
                 }
             } catch { serviceMessage = error.localizedDescription }
+            guard !Task.isCancelled, !stopped else { return }
             clineAccount.refresh(allowInteraction: true)
             claudeAccount.refresh(allowInteraction: true)
         }
@@ -383,14 +416,14 @@ final class IslandModel: ObservableObject {
         guard source != provider else { return }
         refreshTask?.cancel(); refreshing = false; account.stop()
         source = provider; snapshot = nil; serviceMessage = "正在连接…"
-        UserDefaults.standard.set(provider.rawValue, forKey: "source")
+        SeaCoffeePreferences.shared.set(provider.rawValue, forKey: "source")
         refreshCodex()
     }
     func reloadSettings() {
         refreshTask?.cancel(); refreshing = false; snapshot = nil
-        reducedMotion = UserDefaults.standard.bool(forKey: "reducedMotion")
-        hoverEnabled = UserDefaults.standard.object(forKey: "hoverEnabled") as? Bool ?? true
-        account.stop(); account.binaryPath = UserDefaults.standard.string(forKey: "codexBinary") ?? ""
+        reducedMotion = SeaCoffeePreferences.shared.bool(forKey: "reducedMotion")
+        hoverEnabled = SeaCoffeePreferences.shared.object(forKey: "hoverEnabled") as? Bool ?? true
+        account.stop(); account.binaryPath = SeaCoffeePreferences.shared.string(forKey: "codexBinary") ?? ""
         startMonitor(); refresh(); geometryChanged?()
     }
     func setExpanded(_ value: Bool) {
@@ -418,6 +451,7 @@ final class IslandModel: ObservableObject {
     }
     func togglePin() { pinned.toggle(); if !pinned { scheduleCollapse() } }
     func showNotice(_ session: SessionState, kind: NoticeKind = .finished) {
+        guard !stopped else { return }
         if demo { stopPreview() }
         if notice != nil {
             // A question and a finish of one conversation are different notices.
@@ -441,6 +475,7 @@ final class IslandModel: ObservableObject {
             completion = presentation
             expanded = false
         } else { setExpanded(true) }
+        noticePresented?(session, kind)
         let duration = badge ? (reduceMotion ? CompletionMotion.reducedDuration : CompletionMotion.duration) : 5
         noticeTask = Task {
             try? await Task.sleep(for: .seconds(duration))

@@ -1,31 +1,25 @@
 import AppKit
 import SwiftUI
 
-/// Liquid-glass building blocks. macOS 26's `glassEffect` is unavailable on macOS 14/15,
-/// so the material is composed from a live backdrop blur, a tint, a top sheen and a specular rim.
+/// Shared native controls, with warm surfaces and restrained borders inspired by CDS.
+/// The legacy Glass names remain shared with the island and the Droppy extension.
+
+private struct InterfaceReduceMotionKey: EnvironmentKey { static let defaultValue = false }
 
 private struct GlassSnapshotKey: EnvironmentKey { static let defaultValue = false }
 
 extension EnvironmentValues {
-    /// ImageRenderer cannot capture live window blur, so exported previews draw a static stand-in.
+    /// App preference, combined with the read-only system accessibility setting by controls.
+    var interfaceReduceMotion: Bool {
+        get { self[InterfaceReduceMotionKey.self] }
+        set { self[InterfaceReduceMotionKey.self] = newValue }
+    }
+
+    /// Export previews without loading credentials or starting usage-data polling.
     var glassSnapshot: Bool {
         get { self[GlassSnapshotKey.self] }
         set { self[GlassSnapshotKey.self] = newValue }
     }
-}
-
-/// Live blur of whatever sits behind the window (desktop, other apps).
-struct BackdropBlur: NSViewRepresentable {
-    var material: NSVisualEffectView.Material = .hudWindow
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.blendingMode = .behindWindow
-        // The island panel never becomes key; keep the blur live instead of falling back to the inactive look.
-        view.state = .active
-        view.material = material
-        return view
-    }
-    func updateNSView(_ view: NSVisualEffectView, context: Context) { view.material = material }
 }
 
 /// Specular edge: bright where the light hits (top leading), a faint reflection on the far edge,
@@ -43,46 +37,6 @@ struct GlassRim<S: InsettableShape>: View {
             ], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 0.9)
             shape.strokeBorder(.white.opacity(0.07 * intensity), lineWidth: 5).blur(radius: 4).clipShape(shape)
         }
-        .allowsHitTesting(false)
-    }
-}
-
-enum GlassBlending { case behindWindow, withinWindow }
-
-/// A free-standing glass pane: blur, tint, sheen and rim.
-struct GlassSurface<S: InsettableShape>: View {
-    let shape: S
-    var tint: Color = .black
-    var tintOpacity: Double = 0.28
-    var blending: GlassBlending = .behindWindow
-    var rim: Double = 1
-    @Environment(\.glassSnapshot) private var snapshot
-    var body: some View {
-        ZStack {
-            if snapshot {
-                Palette.surface
-            } else if blending == .behindWindow {
-                BackdropBlur()
-            } else {
-                Rectangle().fill(.ultraThinMaterial)
-            }
-            tint.opacity(tintOpacity)
-            GlassSheen()
-        }
-        .clipShape(shape)
-        .overlay(GlassRim(shape: shape, intensity: rim))
-    }
-}
-
-/// Light falling on the upper half of a pane.
-struct GlassSheen: View {
-    var strength: Double = 1
-    var body: some View {
-        LinearGradient(stops: [
-            .init(color: .white.opacity(0.10 * strength), location: 0),
-            .init(color: .white.opacity(0.02 * strength), location: 0.42),
-            .init(color: .clear, location: 1)
-        ], startPoint: .top, endPoint: .bottom)
         .allowsHitTesting(false)
     }
 }
@@ -105,7 +59,7 @@ struct OuterShadow<S: Shape>: View {
     }
 }
 
-/// A quiet, solid pane nested inside the outer glass surface.
+/// A quiet, solid card with a fine border.
 struct GlassCard: ViewModifier {
     var radius: CGFloat = 16
     var tint: Color? = nil
@@ -114,13 +68,13 @@ struct GlassCard: ViewModifier {
         content
             .background {
                 ZStack {
-                    shape.fill(Palette.surface.opacity(0.88))
+                    shape.fill(Palette.surface)
                     if let tint {
                         shape.fill(tint.opacity(0.025))
                     }
                 }
             }
-            .overlay(shape.strokeBorder(Palette.border, lineWidth: 0.75))
+            .overlay(shape.strokeBorder(Palette.border, lineWidth: 0.65))
     }
 }
 
@@ -135,12 +89,14 @@ struct GlassButtonStyle: ButtonStyle {
     var prominent: Color? = nil
     var compact = false
     var circle = false
+    var ghost = false
+    var darkSurface = false
     /// While true the label is swapped for a spinner at the same size.
     var loading = false
     /// Read when loading ends: true shows a check, false shakes the button, nil does neither.
     var succeeded: Bool? = nil
     func makeBody(configuration: Configuration) -> some View {
-        GlassButtonBody(configuration: configuration, prominent: prominent, compact: compact, circle: circle,
+        GlassButtonBody(configuration: configuration, prominent: prominent, compact: compact, circle: circle, ghost: ghost, darkSurface: darkSurface,
                         loading: loading, succeeded: succeeded)
     }
 }
@@ -150,48 +106,53 @@ private struct GlassButtonBody: View {
     let prominent: Color?
     let compact: Bool
     let circle: Bool
+    let ghost: Bool
+    let darkSurface: Bool
+    @Environment(\.isFocused) private var focused
     let loading: Bool
     let succeeded: Bool?
     @Environment(\.isEnabled) private var enabled
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.interfaceReduceMotion) private var appReduceMotion
+    private var reduceMotion: Bool { systemReduceMotion || appReduceMotion }
     @State private var hovering = false
     @State private var showingSuccess = false
     @State private var shakes: CGFloat = 0
     @State private var bounce = 0
     var body: some View {
         let height: CGFloat = compact ? 24 : 32
-        let shape = RoundedRectangle(cornerRadius: circle ? height / 2 : compact ? 8 : 10, style: .continuous)
-        let ink = prominent == nil ? Color.white.opacity(0.9) : Color.black.opacity(0.82)
+        let shape = RoundedRectangle(cornerRadius: circle ? height / 2 : compact ? 6 : 8, style: .continuous)
+        let ink = prominent == nil ? (darkSurface ? NotchPalette.text : Palette.text) : Color(red: 0.14, green: 0.08, blue: 0.05)
         let covered = loading || showingSuccess
         configuration.label
             .font(.system(size: compact ? 11 : 12.5, weight: prominent == nil ? .medium : .semibold))
             .foregroundStyle(ink)
             // The label keeps its space, so the button never changes width while it loads.
             .opacity(covered ? 0 : 1)
-            .blur(radius: covered ? 2.5 : 0)
+            .blur(radius: covered && !reduceMotion ? 2.5 : 0)
             .overlay {
                 if loading {
                     CometSpinner(size: compact ? 12 : 14, tint: ink)
-                        .transition(.opacity.combined(with: .scale(scale: 0.6)))
+                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.85)))
                 } else if showingSuccess {
                     Image(systemName: "checkmark").font(.system(size: compact ? 11 : 12.5, weight: .bold))
                         .foregroundStyle(ink)
                         .symbolEffect(.bounce, value: reduceMotion ? 0 : bounce)
-                        .transition(.opacity.combined(with: .scale(scale: 0.6)))
+                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.85)))
                 }
             }
             .padding(.horizontal, circle ? 0 : compact ? 10 : 14)
             .frame(width: circle ? height : nil, height: height)
             .background {
                 if let prominent {
-                    shape.fill(prominent.opacity(hovering ? 1 : 0.90))
+                    shape.fill(prominent.opacity(hovering ? 0.88 : 1))
                 } else {
-                    shape.fill(.white.opacity(hovering ? 0.15 : 0.08))
+                    shape.fill((darkSurface ? NotchPalette.subtle : Palette.subtle).opacity(hovering ? 1 : ghost ? 0 : 0.65))
                 }
             }
-            .overlay(shape.strokeBorder(.white.opacity(hovering ? 0.22 : 0.10), lineWidth: 0.75))
+            .overlay(shape.strokeBorder(Palette.accent.opacity(focused ? 0.8 : 0), lineWidth: 1.5))
             .contentShape(shape)
-            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
             .brightness(configuration.isPressed ? -0.05 : 0)
             .modifier(ShakeEffect(shakes: shakes))
             // A loading button stays fully opaque even though its action is disabled.
@@ -213,67 +174,191 @@ private struct GlassButtonBody: View {
     }
 }
 
-/// Recessed glass well for text input, with a mint ring while focused.
+/// Native text editing in a raised, softly outlined field with a clay focus ring.
 struct GlassTextField: View {
     let placeholder: String
     @Binding var text: String
     var secure = false
     var monospaced = false
+    var savedValuePreview: String? = nil
     @FocusState private var focused: Bool
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
         Group {
-            if secure { SecureField(placeholder, text: $text) } else { TextField(placeholder, text: $text) }
+            if secure { SecureField(savedValuePreview == nil ? placeholder : "", text: $text) } else { TextField(placeholder, text: $text) }
         }
         .textFieldStyle(.plain)
         .font(.system(size: 12.5, design: monospaced ? .monospaced : .default))
         .focused($focused)
+        .overlay(alignment: .leading) {
+            if text.isEmpty, let savedValuePreview {
+                Text(savedValuePreview)
+                    .font(.system(size: 12.5, design: .monospaced))
+                    .foregroundStyle(Palette.dim)
+                    .lineLimit(1)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+        .accessibilityHint(savedValuePreview.map { "已保存密钥 \($0)，输入新 Key 可替换" } ?? "")
         .padding(.horizontal, 11)
         .frame(height: 32)
-        .background(shape.fill(Palette.canvas.opacity(0.9)))
+        .background(shape.fill(Palette.raised))
         .overlay(shape.strokeBorder(Palette.border, lineWidth: 0.8))
         .overlay(shape.strokeBorder(Palette.accent.opacity(focused ? 0.65 : 0), lineWidth: 1.2))
         .animation(.easeOut(duration: 0.15), value: focused)
     }
 }
 
-/// Segmented control with a glass pill that slides between options.
-struct GlassSegmented<Value: Hashable & Identifiable>: View {
+/// Shared timing for short, interruptible control transitions.
+enum InterfaceMotion {
+    static let selection = Animation.spring(response: 0.35, dampingFraction: 0.88)
+    static let feedback = Animation.easeOut(duration: 0.15)
+}
+
+/// Persistent selection and a separate travelling hover highlight keep navigation legible.
+struct GlassNavigation<Value: Hashable & Identifiable>: View {
     let options: [Value]
     @Binding var selection: Value
     let title: (Value) -> String
+    let symbol: (Value) -> String
     @Namespace private var namespace
+    @State private var hovered: Value?
+    @FocusState private var focused: Value?
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.interfaceReduceMotion) private var appReduceMotion
+    private var reduceMotion: Bool { systemReduceMotion || appReduceMotion }
+
+    var body: some View {
+        VStack(spacing: 5) {
+            ForEach(options) { option in
+                let selected = option == selection
+                Button {
+                    focused = option
+                    guard selection != option else { return }
+                    withAnimation(reduceMotion ? nil : InterfaceMotion.selection) { selection = option }
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: symbol(option))
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(selected ? Palette.accent : Palette.dim)
+                            .frame(width: 18)
+                        Text(title(option)).font(.system(size: 12, weight: .medium))
+                        Spacer(minLength: 0)
+
+                    }
+                    .foregroundStyle(selected ? Palette.text : Palette.dim)
+                    .padding(.horizontal, 12).frame(height: 40)
+                    .background {
+                        if selected {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Palette.surface)
+                                .matchedGeometryEffect(id: "selection", in: namespace)
+                        }
+                        if hovered == option {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Palette.subtle.opacity(0.65))
+                                .matchedGeometryEffect(id: "hover", in: namespace)
+                        }
+                    }
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(
+                        Palette.accent.opacity(focused == option ? 0.75 : 0), lineWidth: 1.5))
+                    .contentShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                .focusable()
+                .focusEffectDisabled()
+                .focused($focused, equals: option)
+                .onKeyPress(keys: [.space, .return]) { _ in
+                    guard enabled else { return .ignored }
+                    if selection != option {
+                        withAnimation(reduceMotion ? nil : InterfaceMotion.selection) { selection = option }
+                    }
+                    return .handled
+                }
+                .onHover { inside in
+                    withAnimation(reduceMotion ? nil : InterfaceMotion.selection) {
+                        if inside { hovered = option }
+                    }
+                }
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+        .onHover { inside in
+            if !inside {
+                withAnimation(reduceMotion ? nil : InterfaceMotion.feedback) { hovered = nil }
+            }
+        }
+    }
+}
+
+/// Segmented control with a restrained pill that slides between options.
+struct GlassSegmented<Value: Hashable & Identifiable>: View {
+    let options: [Value]
+    @Binding var selection: Value
+    var darkSurface = false
+    let title: (Value) -> String
+    @Namespace private var namespace
+    @State private var hovered: Value?
+    @FocusState private var focused: Value?
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.interfaceReduceMotion) private var appReduceMotion
+    private var reduceMotion: Bool { systemReduceMotion || appReduceMotion }
     var body: some View {
         HStack(spacing: 2) {
             ForEach(options) { option in
                 let selected = option == selection
                 Button {
-                    withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { selection = option }
+                    focused = option
+                    guard selection != option else { return }
+                    withAnimation(reduceMotion ? nil : InterfaceMotion.selection) { selection = option }
                 } label: {
                     Text(title(option))
-                        .font(.system(size: 12, weight: selected ? .semibold : .regular))
-                        .foregroundStyle(.white.opacity(selected ? 0.95 : 0.58))
-                        .padding(.horizontal, 12).frame(maxWidth: .infinity).frame(height: 26)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(selected ? (darkSurface ? NotchPalette.text : Palette.text) : (darkSurface ? NotchPalette.dim : Palette.dim))
+                        .padding(.horizontal, 12).frame(maxWidth: .infinity).frame(height: 28)
                         .background {
                             if selected {
-                                Capsule().fill(.white.opacity(0.16))
-                                    .overlay(GlassRim(shape: Capsule(), intensity: 0.85))
-                                    .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
+                                Capsule().fill((darkSurface ? NotchPalette.segmentThumb : Palette.segmentThumb))
+                                    .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
                                     .matchedGeometryEffect(id: "pill", in: namespace)
+                            } else if hovered == option {
+                                Capsule().fill((darkSurface ? NotchPalette.subtle : Palette.subtle).opacity(0.65))
                             }
                         }
+                        .overlay(Capsule().strokeBorder((darkSurface ? NotchPalette.accent : Palette.accent).opacity(focused == option ? 0.75 : 0), lineWidth: 1.5))
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .focusable()
+                .focusEffectDisabled()
+                .focused($focused, equals: option)
+                .onKeyPress(keys: [.space, .return]) { _ in
+                    guard enabled else { return .ignored }
+                    if selection != option {
+                        withAnimation(reduceMotion ? nil : InterfaceMotion.selection) { selection = option }
+                    }
+                    return .handled
+                }
+                .onHover { inside in
+                    withAnimation(InterfaceMotion.feedback) {
+                        if inside { hovered = option }
+                    }
+                }
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }
+        .onHover { inside in
+            if !inside { withAnimation(InterfaceMotion.feedback) { hovered = nil } }
+        }
         .padding(3)
-        .background(Capsule().fill(.black.opacity(0.24)))
-        .overlay(Capsule().strokeBorder(LinearGradient(colors: [.black.opacity(0.25), .white.opacity(0.1)], startPoint: .top, endPoint: .bottom), lineWidth: 0.8))
+        .background(Capsule().fill((darkSurface ? NotchPalette.subtle : Palette.subtle).opacity(0.65)))
     }
 }
 
 struct GlassDivider: View {
-    var body: some View { Rectangle().fill(.white.opacity(0.07)).frame(height: 0.5) }
+    var darkSurface = false
+    var body: some View { Rectangle().fill((darkSurface ? NotchPalette.border : Palette.border).opacity(0.65)).frame(height: 0.5) }
 }

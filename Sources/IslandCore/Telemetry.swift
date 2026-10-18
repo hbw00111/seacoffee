@@ -197,16 +197,20 @@ public struct SessionState: Equatable, Sendable, Identifiable {
 
 /// Sub2API wallets have no server-side total, so the ring measures the balance against a baseline
 /// the user sets. A balance that grew since the last scan means the wallet was topped up: the new
-/// balance becomes the full ring.
+/// balance becomes the full ring. A balance above the baseline also repairs missed top-ups,
+/// including the first scan after upgrading from a version that did not track balances.
 public enum WalletTopUp {
     /// Balances differing by less than half a cent are the same amount.
     static let tolerance = 0.005
 
     /// The baseline to use from now on, or nil when it should stay as it is.
     public static func rebasedBaseline(previousBalance: Double?, currentBalance: Double?, baseline: Double) -> Double? {
-        guard let previousBalance, let currentBalance, previousBalance.isFinite, currentBalance.isFinite,
-              currentBalance > previousBalance + tolerance,
+        guard let currentBalance, currentBalance.isFinite, currentBalance > 0,
+              baseline.isFinite, baseline > 0,
               abs(currentBalance - baseline) > tolerance else { return nil }
+        let exceededBaseline = currentBalance > baseline + tolerance
+        let increased = previousBalance.map { $0.isFinite && currentBalance > $0 + tolerance } ?? false
+        guard exceededBaseline || increased else { return nil }
         return currentBalance
     }
 }

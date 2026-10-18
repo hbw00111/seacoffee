@@ -74,3 +74,15 @@ public enum CredentialFileError: LocalizedError, Equatable {
         }
     }
 }
+
+/// A display-only summary. Never use this value as an authentication credential.
+public enum CredentialPreview {
+    public static func masked(_ value: String?) -> String? {
+        guard let key = value?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty else { return nil }
+        let prefix = key.hasPrefix("sk-") ? "sk-" : ""
+        let body = key.dropFirst(prefix.count)
+        // Short credentials must not become reconstructable from the visible ends.
+        guard body.count >= 16 else { return prefix + "********" }
+        return prefix + body.prefix(4) + "********" + body.suffix(4)
+    }
+}

@@ -14,7 +14,7 @@ enum SeaCoffeeMain {
             PreviewRenderer.render(to: CommandLine.arguments[index + 1]); return
         }
         if let index = CommandLine.arguments.firstIndex(of: "--render-settings"), CommandLine.arguments.count > index + 1 {
-            PreviewRenderer.renderSettings(to: CommandLine.arguments[index + 1]); return
+            PreviewRenderer.renderSettings(to: CommandLine.arguments[index + 1], dark: CommandLine.arguments.contains("--dark")); return
         }
         let delegate = AppDelegate()
         app.delegate = delegate
@@ -48,6 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         panel.isMovable = false; panel.ignoresMouseEvents = true
+        panel.appearance = NSAppearance(named: .darkAqua)
         panel.contentView = NSHostingView(rootView: IslandView(model: model))
         model.openSettings = { [weak self] in self?.showSettings() }
         model.geometryChanged = { [weak self] in self?.placePanel() }
@@ -98,7 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateMouse() {
         guard panel.isVisible else { return }
         let frame = NSRect(x: panel.frame.midX - model.islandWidth / 2,
-                           y: panel.frame.maxY - model.surfaceTopInset - model.islandHeight,
+                           y: panel.frame.maxY - model.islandHeight,
                            width: model.islandWidth, height: model.islandHeight)
         let inside = frame.contains(NSEvent.mouseLocation)
         panel.ignoresMouseEvents = !inside
@@ -134,11 +135,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func quit() { NSApp.terminate(nil) }
     private func showSettings() {
         if settingsWindow == nil {
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 700),
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: InterfaceLayout.settingsWidth, height: InterfaceLayout.settingsHeight),
                                   styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView], backing: .buffered, defer: false)
             window.title = "Sea Coffee · 设置"; window.isReleasedWhenClosed = false
             window.titlebarAppearsTransparent = true; window.titleVisibility = .hidden
-            // Clear window so the SwiftUI backdrop can blur the desktop behind it.
+            // SwiftUI draws an opaque themed canvas through the transparent titlebar.
             window.isOpaque = false; window.backgroundColor = .clear
             window.isMovableByWindowBackground = true
             let host = NSHostingView(rootView: SettingsView(model: model))
@@ -153,17 +154,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 @MainActor
 enum PreviewRenderer {
-    static func renderSettings(to path: String) {
+    static func renderSettings(to path: String, dark: Bool = false) {
         let model = IslandModel(); model.source = .sub2api
         for (index, section) in SettingsSection.allCases.enumerated() {
-            let view = SettingsView(model: model, previewSection: section).environment(\.glassSnapshot, true)
+            let view = SettingsView(model: model, previewSection: section, previewTheme: dark ? .dark : .light).environment(\.glassSnapshot, true)
             let host = NSHostingView(rootView: view)
-            let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 800, height: 700),
+            let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: InterfaceLayout.settingsWidth, height: InterfaceLayout.settingsHeight),
                                   styleMask: [.borderless], backing: .buffered, defer: false)
             window.contentView = host
             window.orderFront(nil)
             RunLoop.main.run(until: Date().addingTimeInterval(0.2))
             host.layoutSubtreeIfNeeded()
+            window.makeFirstResponder(window)
             guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { exit(1) }
             host.cacheDisplay(in: host.bounds, to: bitmap)
             guard let data = bitmap.representation(using: .png, properties: [:]) else { exit(1) }
@@ -184,9 +186,12 @@ enum PreviewRenderer {
         let compact = IslandModel(); compact.demo = true; compact.demoRunning = true
         compact.reducedMotion = true; compact.notchWidth = 120; compact.notchHeight = 0
         let view = PreviewCanvas(running: running, done: done, asked: asked, compact: compact)
-        let renderer = ImageRenderer(content: view)
+        // ImageRenderer has no NSWindow to resolve dynamic AppKit colors against.
+        let renderer = ImageRenderer(content: view.environment(\.colorScheme, .dark))
         renderer.scale = 2
-        guard let image = renderer.cgImage else { fputs("Preview render failed\n", stderr); exit(1) }
+        var rendered: CGImage?
+        NSAppearance(named: .darkAqua)?.performAsCurrentDrawingAppearance { rendered = renderer.cgImage }
+        guard let image = rendered else { fputs("Preview render failed\n", stderr); exit(1) }
         let bitmap = NSBitmapImageRep(cgImage: image)
         guard let data = bitmap.representation(using: .png, properties: [:]) else { exit(1) }
         do { try data.write(to: URL(fileURLWithPath: path)); print("Rendered \(path)") }
@@ -201,11 +206,10 @@ struct PreviewCanvas: View {
     let compact: IslandModel
     var body: some View {
         ZStack {
-            LinearGradient(colors: [Color(red: 0.12, green: 0.19, blue: 0.22), Color(red: 0.07, green: 0.10, blue: 0.14)], startPoint: .topLeading, endPoint: .bottomTrailing)
-            Circle().fill(Palette.mint.opacity(0.08)).frame(width: 600).blur(radius: 110).offset(x: -350, y: 50)
+            Color(red: 0.16, green: 0.15, blue: 0.14)
             VStack(spacing: 0) {
                 HStack(spacing: 12) {
-                    Image(systemName: "sparkle").foregroundStyle(Palette.mint).font(.system(size: 22))
+                    Image(systemName: "cup.and.saucer.fill").foregroundStyle(Palette.accentFill).font(.system(size: 22))
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Sea Coffee").font(.system(size: 24, weight: .medium))
                         Text("余额与任务状态，一眼看清。")
@@ -219,7 +223,7 @@ struct PreviewCanvas: View {
                 HStack(spacing: 0) {
                     VStack(spacing: 14) {
                         Text("运行中").font(.system(size: 11)).foregroundStyle(.white.opacity(0.45))
-                        IslandView(model: running).frame(width: 360, height: 440, alignment: .top)
+                        IslandView(model: running).frame(width: 400, height: 440, alignment: .top)
                     }
                     VStack(spacing: 14) {
                         Text("本轮完成").font(.system(size: 11)).foregroundStyle(.white.opacity(0.45))
@@ -234,7 +238,7 @@ struct PreviewCanvas: View {
                 Text("图中为演示数据 · 支持 Sub2API、Codex 官方、Cline Pass、Claude 与 Grok")
                     .font(.system(size: 10)).foregroundStyle(.white.opacity(0.3)).padding(.bottom, 30)
             }
-        }.frame(width: 960, height: 800).foregroundStyle(.white).preferredColorScheme(.dark)
+        }.frame(width: 1040, height: 800).foregroundStyle(.white).preferredColorScheme(.dark)
         .environment(\.glassSnapshot, true)
     }
 }

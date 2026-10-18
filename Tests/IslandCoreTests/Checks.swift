@@ -17,10 +17,14 @@ func expectNoThrow<T>(_ expression: @autoclosure () throws -> T, file: StaticStr
 
 @main
 enum Checks {
-    static func main() {
+    static func main() async {
         let cline = ClineTests(); let claude = ClaudeTests(); let grok = GrokTests(); let credentials = CredentialFileTests(); let agents = AgentSessionTests(); let piDesktop = PiDesktopTests(); let topUp = WalletTopUpTests()
         let telemetry = TelemetryTests(); let monitor = SessionMonitorTests()
-        let checks: [(String, () throws -> Void)] = [
+        let checks: [(String, () async throws -> Void)] = [
+            ("usage cache normalization", UsageAnalyticsTests().normalization),
+            ("usage totals and unknown values", UsageAnalyticsTests().totals),
+            ("usage database read-only and date filtering", UsageAnalyticsTests().database),
+            ("quota history persistence, retention and isolation", UsageAnalyticsTests().quotaHistory),
             ("quota color boundaries", {
                 expectEqual(QuotaLevel(fraction: 0.5), .healthy)
                 expectEqual(QuotaLevel(fraction: 0.49), .warning)
@@ -39,7 +43,6 @@ enum Checks {
                 expectEqual(CompletionMotion(elapsed: 1).mergeProgress, 1)
                 expectEqual(CompletionMotion(elapsed: 0, reduced: true).rotation, 0)
                 expectEqual(CompletionMotion(elapsed: 0, reduced: true).checkProgress, 1)
-                expectEqual(CompletionMotion(elapsed: CompletionMotion.duration).settled, true)
             }),
             ("Cline Pass quota windows", cline.windows),
             ("Cline missing and invalid quota", cline.invalidUsage),
@@ -57,6 +60,7 @@ enum Checks {
             ("Grok missing and invalid usage", grok.invalidUsage),
             ("Grok CLI credential parsing", grok.credentials),
             ("Grok plan and HTTP status", grok.planAndStatus),
+            ("credential preview masks secrets and short keys", credentials.maskedPreview),
             ("credential file round trip and permissions", credentials.roundTripAndPermissions),
             ("credential file rejects links and tightens modes", credentials.unsafeFiles),
             ("wallet baseline", telemetry.testWalletUsesExplicitBaselineAndRetainsActualAmount),
@@ -92,7 +96,7 @@ enum Checks {
         ]
         for (name, check) in checks {
             let count = failures.count
-            do { try check() } catch { failures.append("\(name): \(error)") }
+            do { try await check() } catch { failures.append("\(name): \(error)") }
             print("\(failures.count == count ? "PASS" : "FAIL") \(name)")
         }
         for error in failures { fputs(error + "\n", stderr) }

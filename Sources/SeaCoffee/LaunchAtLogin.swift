@@ -40,7 +40,7 @@ struct LaunchAtLoginToggle: View {
     var body: some View {
         HStack(spacing: 10) {
             if let message = launch.message {
-                Text(message).font(.system(size: 11)).foregroundStyle(.white.opacity(0.6))
+                Text(message).font(.system(size: 11)).foregroundStyle(Palette.dim)
                     .multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
             }
             if launch.needsApproval {

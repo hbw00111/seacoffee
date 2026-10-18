@@ -7,8 +7,8 @@ enum ActivityAppearance: Equatable {
         switch self {
         case .idle: return Color.white.opacity(0.48)
         case .running: return Color(red: 1, green: 0.59, blue: 0.16)
-        // Needs the user but nothing went wrong, so the accent rather than red.
-        case .asking: return Palette.accent
+        // A question keeps its own semantic color, distinct from the clay brand accent.
+        case .asking: return NotchPalette.attention
         case .completed: return Color(red: 48 / 255, green: 209 / 255, blue: 88 / 255)
         case .failed, .interrupted: return Color(red: 1, green: 0.27, blue: 0.25)
         }
@@ -234,7 +234,7 @@ private struct CompletionCaptionView: View {
     var body: some View {
         HStack(spacing: 4) {
             caption.style.icon.resizable().aspectRatio(contentMode: .fit)
-                .frame(width: 10, height: 10).foregroundStyle(caption.style.tint)
+                .frame(width: 10, height: 10).foregroundStyle(caption.style.notchTint)
             Text(caption.text).font(.system(size: 10, weight: .medium)).foregroundStyle(.white.opacity(0.85))
                 .lineLimit(1).minimumScaleFactor(0.75)
         }

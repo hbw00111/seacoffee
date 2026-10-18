@@ -26,20 +26,20 @@ final class GrokAccount: ObservableObject {
         return URLSession(configuration: config, delegate: NoRedirects(), delegateQueue: nil)
     }()
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = SeaCoffeePreferences.shared) {
         enabled = defaults.bool(forKey: "grokEnabled")
     }
 
     func connect() {
         enabled = true
-        UserDefaults.standard.set(true, forKey: "grokEnabled")
+        SeaCoffeePreferences.shared.set(true, forKey: "grokEnabled")
         refresh(force: true)
     }
 
     func disconnect() {
         task?.cancel()
         enabled = false; plan = nil; email = nil
-        UserDefaults.standard.set(false, forKey: "grokEnabled")
+        SeaCoffeePreferences.shared.set(false, forKey: "grokEnabled")
         onDisconnect?()
         onStatus?("已停止读取 Grok 登录")
     }

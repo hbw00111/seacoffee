@@ -34,6 +34,7 @@ final class ClineAccount: ObservableObject {
     @Published private(set) var email: String?
     @Published private(set) var connected = false
     @Published private(set) var hasAPIKey = false
+    @Published private(set) var apiKeyPreview: String?
     /// Outcome of the latest operation, for the settings button's check or shake.
     @Published private(set) var lastSucceeded: Bool?
     var onStatus: ((String) -> Void)?
@@ -97,6 +98,7 @@ final class ClineAccount: ObservableObject {
             let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
             try await Task.detached { try SecureStore.writeAndVerify(trimmed, account: Self.apiKeyAccount) }.value
             hasAPIKey = !trimmed.isEmpty
+            apiKeyPreview = CredentialPreview.masked(trimmed)
             if trimmed.isEmpty {
                 onLogout?(); onStatus?("已移除 Cline API Key")
             } else {
@@ -110,10 +112,12 @@ final class ClineAccount: ObservableObject {
         run { [self] in
             if let key = try await Task.detached(operation: { try SecureStore.read(account: Self.apiKeyAccount) }).value, !key.isEmpty {
                 hasAPIKey = true
+                apiKeyPreview = CredentialPreview.masked(key)
                 try await fetchUsage(authorization: ClineProtocol.apiKeyHeader(key), label: "API Key")
                 return
             }
             hasAPIKey = false
+            apiKeyPreview = nil
             guard var credentials = try await store.read(allowInteraction: allowInteraction) else {
                 connected = false; email = nil
                 throw ClineError.notConnected

@@ -35,6 +35,22 @@ import IslandCore
         precondition(model.displayedSnapshot != nil && model.displayedClineSnapshot != nil)
         model.expanded = true
         precondition(model.islandHeight < 480)
+        var notifications = 0
+        model.noticePresented = { _, _ in notifications += 1 }
+        model.demo = false
+        var finished = SessionState(id: "droplet-lifecycle-fixture")
+        finished.state = .completed
+        model.showNotice(finished)
+        precondition(notifications == 1, "Host receives the completed task once")
+        model.showNotice(finished, kind: .question) // Queued behind completion.
+        model.stop()
+        precondition(model.notice == nil && model.completion == nil && !model.refreshing)
+        model.showNotice(finished)
+        model.refresh()
+        model.authorizeCredentials()
+        precondition(notifications == 1 && !model.refreshing && !model.authorizingCredentials,
+                     "A disabled droplet must not emit notices or restart account requests")
+        print("PASS droplet lifecycle: notice delivery, queued notice cleanup, stopped refresh guard")
         print("PASS migration, independent snapshots/status/staleness, Cline logout, Codex clearing, dual demo and panel bounds")
     }
 }

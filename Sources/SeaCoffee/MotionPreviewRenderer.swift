@@ -15,7 +15,9 @@ enum MotionPreviewRenderer {
                 let elapsed = Double(index) / 30
                 let renderer = ImageRenderer(content: MotionPreviewFrame(elapsed: elapsed, kind: kind))
                 renderer.scale = 2
-                guard let image = renderer.cgImage else { return }
+                var rendered: CGImage?
+                NSAppearance(named: .darkAqua)?.performAsCurrentDrawingAppearance { rendered = renderer.cgImage }
+                guard let image = rendered else { return }
                 CGImageDestinationAddImage(destination, image, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: 1.0 / 30]] as CFDictionary)
                 if index == 88 {
                     let bitmap = NSBitmapImageRep(cgImage: image)
@@ -69,7 +71,7 @@ private struct MotionPreviewFrame: View {
             }.frame(height: 50)
         }
         .frame(width: 520, height: 280)
-        .background(Color(red: 0.075, green: 0.085, blue: 0.10))
+        .background(Color(red: 0.12, green: 0.115, blue: 0.10))
         .environment(\.colorScheme, .dark)
         .environment(\.glassSnapshot, true)
     }

@@ -28,14 +28,14 @@ final class ClaudeAccount: ObservableObject {
         return URLSession(configuration: config, delegate: NoRedirects(), delegateQueue: nil)
     }()
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = SeaCoffeePreferences.shared) {
         enabled = defaults.bool(forKey: "claudeEnabled")
     }
 
     /// User action: may show the macOS Keychain dialog for Claude Code's item.
     func connect() {
         enabled = true
-        UserDefaults.standard.set(true, forKey: "claudeEnabled")
+        SeaCoffeePreferences.shared.set(true, forKey: "claudeEnabled")
         credentials = nil
         refresh(allowInteraction: true)
     }
@@ -43,7 +43,7 @@ final class ClaudeAccount: ObservableObject {
     func disconnect() {
         task?.cancel()
         enabled = false; credentials = nil; plan = nil
-        UserDefaults.standard.set(false, forKey: "claudeEnabled")
+        SeaCoffeePreferences.shared.set(false, forKey: "claudeEnabled")
         onDisconnect?()
         onStatus?("已停止读取 Claude Code 登录")
     }

@@ -14,6 +14,10 @@ Native SwiftUI + AppKit. No Electron, no third-party runtime dependencies.
 
 ## Features
 
+- **Unified interface**: warm surfaces and clay accents inspired by open-claude-ui, with light, dark, and system themes. Account shortcuts, per-tool monitoring controls, consistent usage filters, and a fixed save bar keep settings easy to navigate. The notch stays dark.
+
+- **Usage dashboard**: Statistics are prepared in the background and cached; returning to the page reuses recent data. Today, 7-day and 30-day views for tokens, recorded cost, calls, success rate, cache hits, model breakdowns and recent requests, filtered by tool, provider and model. Call statistics read retained local CC Switch detail records (up to 200,000); recorded estimates are not billing statements. Quota and balance history starts after this version launches, retaining the latest successful snapshot per 15-minute bucket for about 30 days. Quota history also works without CC Switch.
+
 - **Task status**: follows the local session files of Codex, Claude Code, Grok, Cline, and Pi (including PI-Desktop, which keeps its sessions in SQLite) and shows how many conversations are running. When a task finishes, the notch plays a checkmark animation labelled with the agent and model that finished it (for example `Claude Code · claude-opus-5-5`). When an agent asks you a question, the notch pops the same badge with a question mark, labelled with the agent and project that is asking (supported for Claude Code's `AskUserQuestion` and Codex's `request_user_input`). If a Claude Code question stays unanswered, the drop on the left turns violet and pulses, and the expanded panel says it is waiting for you. Failures and interruptions show a text notice.
 - **Quotas and balances**, each refreshed independently:
 
@@ -27,7 +31,8 @@ Native SwiftUI + AppKit. No Electron, no third-party runtime dependencies.
 
 - **Privacy first**: only event types, timestamps, project folder names, and model names are read. Conversation content is never stored or uploaded. Logins borrowed from other tools are read-only.
 - Quota indicators (small rings when collapsed, bars when expanded): green at 50% or more, yellow at 20–49%, red below 20%, grey when unknown. Unknown data is never shown as 0% or 100%.
-- Respects the system "Reduce motion" setting. On Macs without a notch it appears as a pill at the top of the screen.
+- Settings navigation and account-source controls use sliding highlights, hover feedback, and keyboard focus outlines; the island smoothly adjusts to quota-row changes.
+- Respects both system and app "Reduce motion" settings. On Macs without a notch it appears as a pill at the top of the screen.
 
 ## Install
 
@@ -44,11 +49,23 @@ The app is built to `dist/Sea Coffee.app`; drag it to Applications if you like. 
 
 > The app is not notarized by Apple. If macOS says it cannot verify the developer, right-click the app in Finder and choose Open.
 
+## Droppy extension
+
+Sea Coffee also runs inside Droppy 16.0.1+: a Shelf dashboard shows quotas and tasks, a persistent live activity shows per-account quota rings and percentages alongside task status, including while idle, and HUDs announce completion, questions and failures. It reuses the same monitoring and account code without launching the standalone app.
+
+Run `bash scripts/build-droplet.sh`, then choose `dist/SeaCoffeeDroplet.droplet` under **Droplet Store → Local droplets**. Approve the local build and select Sea Coffee on the Shelf widgets page. The gear opens account and monitoring settings, sharing the standalone preferences and credential storage. Quit the standalone app to avoid duplicate polling. The embedded settings cannot quit Droppy or change its login item.
+
+Local unsigned droplets require approval on each host launch; replacing a loaded build requires restarting Droppy. Built-in music, meetings and recording take priority over its compact live activity. Quotas poll every 60 seconds (Claude / Grok at least 120 seconds apart), with additional refreshes on task completion; this is not second-by-second streaming. Swift 6.2+ is required. The build pins DroppyKit v1.20.1 and prepares an isolated macro compatibility copy for Command Line Tools. See [extension development](Droplet/README.md).
+
 ## Usage
+
+Each account card includes usage details: wallet balance, all returned quota windows, remaining percentages, reset times, and the last successful update. Stale data is marked explicitly; unavailable usage is not shown as zero.
+
+Saved Codex API and Cline API keys show a masked summary in their fields. Enter a new key to replace one; leaving the edit buffer empty preserves the saved key.
 
 Open **Settings** and connect the sources you use:
 
-- **Codex API**: enter your Sub2API site URL, API key, and the balance that counts as full, then click "保存并刷新" (Save and refresh). Only `GET /v1/usage` is called; no model requests are sent. After each top-up, the baseline moves to the new balance automatically.
+- **Codex API**: enter your Sub2API site URL, API key, and the balance that counts as full, then click "保存并刷新" (Save and refresh). Only `GET /v1/usage` is called; no model requests are sent. After each top-up, the baseline moves to the new balance automatically. A balance already above the old baseline also corrects it on refresh.
 - **Codex official**: switch the connection mode and click "连接官方账号" (Connect official account). A separate Codex home directory is used, so your existing Codex login is untouched.
 - **Cline Pass**: create an API key at [app.cline.bot](https://app.cline.bot) and paste it in, or sign in with a device code in your browser.
 - **Claude**: sign in with `claude` in a terminal first, then click "连接 Claude Code" (Connect Claude Code).

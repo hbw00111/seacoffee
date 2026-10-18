@@ -1,0 +1,5 @@
+{
+  "fill-specializations": [{"value": {"solid": "srgb:0.055,0.055,0.063,1.000"}}],
+  "groups": [{"layers": [{"hidden": false, "image-name": "coffee.png", "name": "Sea Coffee", "position": {"scale": 0.85, "translation-in-points": [0, 0]}}], "shadow": {"kind": "neutral", "opacity": 0.3}}],
+  "supported-platforms": {"squares": "shared"}
+}

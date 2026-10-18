@@ -2,6 +2,14 @@ import Foundation
 import IslandCore
 
 final class CredentialFileTests {
+    func maskedPreview() {
+        expectNil(CredentialPreview.masked(nil))
+        expectNil(CredentialPreview.masked(" \n"))
+        expectEqual(CredentialPreview.masked("sk-abcd0123456789wxyz"), "sk-abcd********wxyz")
+        expectEqual(CredentialPreview.masked("  abcd0123456789wxyz\n"), "abcd********wxyz")
+        expectEqual(CredentialPreview.masked("sk-short"), "sk-********")
+        expectEqual(CredentialPreview.masked("tiny"), "********")
+    }
     private func sandbox() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("seacoffee-credentials-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

@@ -1,0 +1,15 @@
+{
+  "id": "seacoffee",
+  "name": "Sea Coffee",
+  "version": "0.1.1",
+  "summary": "AI 任务状态、订阅额度与 API 钱包余额",
+  "description": "监听 Codex、Claude Code、Grok、Cline、Pi 与 PI-Desktop 的本地任务，显示各渠道额度、余额以及完成、提问和失败提示。沿用本机 Sea Coffee 的配置。",
+  "category": "Productivity",
+  "kit": { "abi": 1, "minAPI": "1.20.1" },
+  "minAppVersion": "16.0.1",
+  "capabilities": ["shelf-read", "hud", "network-client"],
+  "surfaces": ["shelf-widget", "live-activity", "settings-pane", "hud"],
+  "icon": "SeaCoffee.icon",
+  "creator": { "name": "Sea Coffee", "kind": "community", "url": "https://github.com/hbw00111/seacoffee", "avatar": "Creator.png" },
+  "source": { "repository": "https://github.com/hbw00111/seacoffee", "license": "MIT" }
+}

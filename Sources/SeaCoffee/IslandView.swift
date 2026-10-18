@@ -1,19 +1,6 @@
 import SwiftUI
 import IslandCore
 
-enum Palette {
-    static let mint = Color(red: 0.52, green: 0.94, blue: 0.79)
-    static let blue = Color(red: 0.44, green: 0.73, blue: 0.98)
-    static let clay = Color(red: 0.85, green: 0.47, blue: 0.34)
-    static let silver = Color(white: 0.85)
-    static let lilac = Color(red: 0.78, green: 0.62, blue: 1)
-    static let accent = Color(red: 0.51, green: 0.55, blue: 0.98)
-    static let canvas = Color(red: 0.055, green: 0.055, blue: 0.063)
-    static let surface = Color(red: 0.085, green: 0.085, blue: 0.098)
-    static let border = Color.white.opacity(0.10)
-    static let dim = Color.white.opacity(0.66)
-}
-
 /// Icon and colour for each quota source, shared by the island and Settings.
 enum ServiceStyle {
     case codex, cline, claude, grok, pi
@@ -44,6 +31,16 @@ enum ServiceStyle {
         case .pi: return Palette.lilac
         }
     }
+    var notchTint: Color {
+        switch self {
+        case .codex: return NotchPalette.mint
+        case .cline: return NotchPalette.blue
+        case .claude: return NotchPalette.clay
+        case .grok: return NotchPalette.silver
+        case .pi: return NotchPalette.lilac
+        }
+    }
+
 }
 
 /// The island's material. Expanded it is dark liquid glass; `blackness` fades it to solid black
@@ -56,7 +53,7 @@ struct IslandSurface<S: InsettableShape>: View {
     var glowOpacity: Double = 0
     var body: some View {
         ZStack(alignment: .top) {
-            Palette.canvas
+            NotchPalette.canvas
             Ellipse().fill(glow.opacity(glowOpacity))
                 .frame(width: 340, height: 150).blur(radius: 46)
                 .frame(maxHeight: .infinity, alignment: .bottom).offset(y: 70)
@@ -105,7 +102,9 @@ struct IslandView: View {
                 }.id(completion.id)
             } else { normalIsland }
         }
+        .foregroundStyle(NotchPalette.text)
         .preferredColorScheme(.dark)
+        .environment(\.interfaceReduceMotion, model.reduceMotion)
     }
     private var normalIsland: some View {
         VStack(spacing: 0) {
@@ -113,7 +112,8 @@ struct IslandView: View {
                     header
                     if model.expanded {
                         detail
-                            .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: -7)), removal: .opacity))
+                            .transition(model.reduceMotion ? .opacity : .asymmetric(
+                                insertion: .opacity.combined(with: .offset(y: -5)), removal: .opacity))
                     }
             }
             .frame(width: model.islandWidth, height: model.islandHeight, alignment: .top)
@@ -129,7 +129,7 @@ struct IslandView: View {
             }
             .clipShape(shape)
             .animation(model.islandAnimation, value: model.expanded)
-            .padding(.top, model.surfaceTopInset)
+            .animation(model.reduceMotion ? nil : InterfaceMotion.selection, value: model.detailHeight)
             Spacer(minLength: 0)
         }
         .frame(width: 520, height: 480, alignment: .top)
@@ -160,7 +160,7 @@ struct IslandView: View {
             Color.clear.frame(width: model.hasNotch ? model.notchWidth : 94)
             HStack(spacing: 5) {
                 if model.expanded {
-                    Text("Sea Coffee").font(.system(size: 9, weight: .medium)).foregroundStyle(Palette.dim)
+                    Text("Sea Coffee").font(.system(size: 9, weight: .medium)).foregroundStyle(NotchPalette.dim)
                 } else {
                     let lanes = model.planLanes
                     if lanes.count >= 3 {
@@ -196,41 +196,41 @@ struct IslandView: View {
                     .frame(width: 3, height: 28)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(model.statusTitle).font(.system(size: 13, weight: .semibold))
-                    Text(model.statusDetail).font(.system(size: 10)).foregroundStyle(Palette.dim).lineLimit(1)
+                    Text(model.statusDetail).font(.system(size: 10)).foregroundStyle(NotchPalette.dim).lineLimit(1)
                 }
                 Spacer(minLength: 4)
                 if model.demo || model.canOpen(model.focusAgent) {
                     Button { model.openAgent() } label: { Image(systemName: "arrow.up.right") }
-                        .buttonStyle(GlassButtonStyle(compact: true))
+                        .buttonStyle(GlassButtonStyle(compact: true, darkSurface: true))
                         .help("打开 \(model.focusAgent.name)")
                         .accessibilityLabel("打开 \(model.focusAgent.name)")
                 }
             }.frame(height: 52)
-            GlassDivider()
+            GlassDivider(darkSurface: true)
             HStack {
                 Text("账号").font(.system(size: 10, weight: .medium))
                 Spacer()
                 Text("剩余额度").font(.system(size: 10, weight: .medium))
-            }.foregroundStyle(Palette.dim).frame(height: 26)
+            }.foregroundStyle(NotchPalette.dim).frame(height: 26)
             quotaRow(style: .codex, title: model.source.title,
                      windows: QuotaPresentation.windows(model.displayedSnapshot, totalOnly: model.source == .sub2api),
                      totalOnly: model.source == .sub2api, message: "在设置中连接账号",
                      loading: model.refreshing && model.displayedSnapshot == nil, stale: model.isStale)
             ForEach(model.planLanes) { lane in
-                GlassDivider()
+                GlassDivider(darkSurface: true)
                 quotaRow(style: ServiceStyle(laneID: lane.id), title: lane.title,
                          windows: QuotaPresentation.windows(lane.snapshot),
                          message: lane.message, loading: lane.loading, stale: lane.stale)
             }
             Spacer(minLength: 0)
-            GlassDivider()
+            GlassDivider(darkSurface: true)
             HStack {
                 Text(model.demo ? "演示数据" : "各账号独立刷新")
-                    .font(.system(size: 9)).foregroundStyle(Palette.dim)
+                    .font(.system(size: 9)).foregroundStyle(NotchPalette.dim)
                 Spacer()
                 Button { model.openSettings?() } label: {
                     Label("管理账号", systemImage: "slider.horizontal.3")
-                }.buttonStyle(GlassButtonStyle(compact: true))
+                }.buttonStyle(GlassButtonStyle(compact: true, darkSurface: true))
             }.frame(height: 34)
         }
         .padding(.horizontal, 18)
@@ -249,21 +249,21 @@ struct IslandView: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 7) {
                 style.icon.resizable().aspectRatio(contentMode: .fit)
-                    .foregroundStyle(.white.opacity(0.8)).frame(width: 13, height: 13)
+                    .foregroundStyle(style.notchTint.opacity(0.9)).frame(width: 13, height: 13)
                 Text(title).font(.system(size: 11, weight: .semibold))
-                if stale { Text("待更新").font(.system(size: 9)).foregroundStyle(Palette.dim) }
+                if stale { Text("待更新").font(.system(size: 9)).foregroundStyle(NotchPalette.dim) }
                 Spacer()
                 if totalOnly, model.displayedSnapshot?.balance != nil {
-                    Text(amount).font(.system(size: 10)).monospacedDigit().foregroundStyle(Palette.dim)
+                    Text(amount).font(.system(size: 11, weight: .medium)).monospacedDigit().foregroundStyle(NotchPalette.text)
                 }
             }.frame(height: 16)
             if windows.isEmpty {
                 HStack {
                     Text(loading ? "正在查询额度…" : message).font(.system(size: 9)).lineLimit(1)
                     Spacer()
-                    if loading { CometSpinner(size: 11, tint: Palette.accent) }
+                    if loading { CometSpinner(size: 11, tint: NotchPalette.accent) }
                     else { Text("—").font(.system(size: 11)) }
-                }.foregroundStyle(Palette.dim).frame(height: 20)
+                }.foregroundStyle(NotchPalette.dim).frame(height: 20)
             } else {
                 VStack(spacing: 0) {
                     ForEach(windows) { quota in
@@ -271,16 +271,16 @@ struct IslandView: View {
                             Text(totalOnly ? "总额度" : quota.label == "7 天" ? "每周" : quota.label)
                                 .font(.system(size: 10, weight: .medium)).frame(width: 38, alignment: .leading)
                             Text(totalOnly ? quotaCaption : resetCaption(quota))
-                                .font(.system(size: 9)).foregroundStyle(Palette.dim).lineLimit(1)
+                                .font(.system(size: 9)).foregroundStyle(NotchPalette.dim).lineLimit(1)
                                 .help(totalOnly ? quotaCaption : resetCaption(quota))
                             Spacer(minLength: 0)
                             GeometryReader { proxy in
                                 ZStack(alignment: .leading) {
-                                    Capsule().fill(.white.opacity(0.08))
-                                    Capsule().fill(QuotaRing.tint(for: quota.fraction).opacity(stale ? 0.4 : 0.85))
+                                    Capsule().fill(NotchPalette.subtle)
+                                    Capsule().fill(QuotaRing.tint(for: quota.fraction, darkSurface: true).opacity(stale ? 0.4 : 0.85))
                                         .frame(width: proxy.size.width * min(1, max(0, quota.fraction)))
                                 }
-                            }.frame(width: 48, height: 3).accessibilityHidden(true)
+                            }.frame(width: 56, height: 4).accessibilityHidden(true)
                             Text("\(quota.percent)%").font(.system(size: 11, weight: .semibold))
                                 .monospacedDigit().frame(width: 33, alignment: .trailing)
                         }.frame(height: 20)
@@ -300,16 +300,16 @@ struct IslandView: View {
     private func compactQuota(_ style: ServiceStyle, title: String, quota: Quota?, stale: Bool, loading: Bool = false) -> some View {
         HStack(spacing: 4) {
             style.icon.resizable().aspectRatio(contentMode: .fit)
-                .foregroundStyle(style.tint.opacity(0.95))
+                .foregroundStyle(style.notchTint.opacity(0.95))
                 .frame(width: 11, height: 11)
             Group {
-                if loading { CometSpinner(size: 10, lineWidth: 1.5, tint: style.tint) }
+                if loading { CometSpinner(size: 10, lineWidth: 1.5, tint: style.notchTint) }
                 else { QuotaRing(fraction: quota?.fraction, lineWidth: 1.5, stale: stale, reducedMotion: model.reduceMotion) }
             }
             .frame(width: 10, height: 10)
             Text(quota.map { "\($0.percent)%" } ?? "—")
                 .font(.system(size: 9, weight: .medium, design: .rounded)).monospacedDigit()
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(NotchPalette.text)
         }
         .accessibilityLabel("\(title)，剩余\(quota.map { "\($0.percent)%" } ?? "未知")")
     }
@@ -337,29 +337,28 @@ struct QuotaRing: View {
     var stale = false
     var reducedMotion = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    static func tint(for fraction: Double?) -> Color {
+    static func tint(for fraction: Double?, darkSurface: Bool = false) -> Color {
         switch QuotaLevel(fraction: fraction) {
-        case .healthy: return Palette.mint
-        case .warning: return Color(red: 1, green: 0.79, blue: 0.26)
-        case .low: return Color(red: 1, green: 0.30, blue: 0.35)
+        case .healthy: return darkSurface ? NotchPalette.mint : Palette.mint
+        case .warning: return darkSurface ? NotchPalette.warning : Palette.warning
+        case .low: return darkSurface ? NotchPalette.danger : Palette.danger
         case .unknown: return .gray
         }
     }
-    private var tint: Color { Self.tint(for: fraction) }
+    private var tint: Color { Self.tint(for: fraction, darkSurface: true) }
     var body: some View {
         ZStack {
             // Recessed glass groove for the track.
-            Circle().stroke(.black.opacity(0.28), lineWidth: lineWidth)
-            Circle().stroke(LinearGradient(colors: [.white.opacity(0.04), .white.opacity(0.14)], startPoint: .top, endPoint: .bottom), lineWidth: lineWidth)
+            Circle().stroke(NotchPalette.subtle, lineWidth: lineWidth)
             if let fraction {
                 Circle().trim(from: 0, to: fraction)
                     .stroke(AngularGradient(colors: [tint.opacity(0.65), tint], center: .center, startAngle: .degrees(0), endAngle: .degrees(360)),
                             style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                     .rotationEffect(.degrees(-90)).opacity(stale ? 0.45 : 1)
-                    .shadow(color: tint.opacity(0.45), radius: 6)
+                    .shadow(color: tint.opacity(0.12), radius: 2)
                     .animation(reduceMotion || reducedMotion ? nil : .spring(response: 0.9, dampingFraction: 0.9), value: fraction)
             } else {
-                Circle().stroke(.white.opacity(0.22), style: StrokeStyle(lineWidth: lineWidth, dash: [2, 5]))
+                Circle().stroke(NotchPalette.muted.opacity(0.5), style: StrokeStyle(lineWidth: lineWidth, dash: [2, 5]))
             }
         }.padding(lineWidth / 2)
     }
