@@ -1,6 +1,6 @@
 # 项目进度
 
-最后更新：2026-10-18 · 独立版 0.1.0 / Droppy 插件 0.1.1（预览版）
+最后更新：2026-10-21 · 独立版 0.1.0 / Droppy 插件 0.1.1（预览版）
 
 ## 这个应用是干什么的
 
@@ -33,6 +33,8 @@
 安装与使用见 [README](../README.md)，接口与实现细节见 [工作原理](how-it-works.md)。
 
 ## 当前状态
+
+修复 DSH 完成提示刷屏：`dsh web` 每次启动（本机 10-21 16:58 启动）会把列出的每个会话投影缓存重写一遍，17:00 一次改了约 40 个文件；其中早已超出两天扫描窗口的旧会话重新进入窗口，被当成新会话，各自弹了一次“DSH 本轮已完成”。现在只有监控自己看到的“运行中 → 结束”变化才提示，文件第一次进入窗口时即使已是完成状态也不提示。新增 1 项检查（重写旧缓存不提示、真实运行→结束提示一次），61 项检查通过；已重新构建、装进 `/Applications` 并重启。代价是开始与结束都发生在两次扫描（2 秒）之间的任务不会弹完成提示，状态仍会显示。
 
 接入 DSH（DeepSeek Harness）：任务监测多一个工具开关，读 `~/.dsh/storages/session_projcache/sessions/session-*.json`（DSH 自己写的会话投影，原始事件日志是 zstd 压缩的 JSONL，不读）。运行中看 `turnBoundary.openTurnStartSeq` 与 `sessionStats.openStep`，轮次结束即提示完成；模型、项目、提问（`userQuestions` 的 `callId`）与其它工具一致。额度不做。用量页新增“DSH 记录”页：按会话列出轮次、步数、输入 / 输出 / 缓存 Tokens、解码 tok/s 与首字延迟，汇总卡给出会话数、真实消耗 Tokens、加权解码速度与平均首字；这些数字来自 DSH 自己的统计，不并入 CC Switch 的请求统计。本机 34 个会话读取正常（7 天内 19 个，1 个运行中，224 tok/s、首字 4.1 s），当前会话被识别为运行中；60 项核心检查、账号隔离检查与插件构建通过。投影缓存每 200 个事件或 5 秒落盘，状态最多晚 5 秒；空白会话不列出。已安装到 `/Applications` 并重启，刘海展开显示“DSH 正在运行 · seacoffee · 1 个对话运行中”；真实设置窗口里的 DSH 记录页尚未逐个点击验证。
 
@@ -88,6 +90,7 @@ Droppy 插件 0.1.1 补齐收起刘海的常驻额度圆环与百分比，空闲
 
 | 日期 | 内容 |
 |---|---|
+| 10-21 | 修复 DSH 完成提示刷屏：`dsh web` 重写旧会话缓存会让它们重新进入扫描窗口并被当成新完成；改为只提示监控自己看到的运行→结束变化，新增 1 项检查 |
 | 10-18 | 接入 DSH：任务监听读会话投影缓存（运行中 / 完成、模型、项目、提问），用量页新增“DSH 记录”页（轮次、步数、Tokens、tok/s、首字延迟），不做额度；新增 2 项检查 |
 | 10-18 | 修复 Claude Code 误报运行中：只输入 `/context`、`/compact` 等本地命令或 `!` 命令时，会话日志会写一条用户消息但不会有回复，此前被当成新一轮任务；`/compact` 写下的摘要（`isCompactSummary`）同理；现在忽略这些行，扩充 1 项检查 |
 | 10-18 | 用量页卡顿修复：趋势图悬停不再重建图表，热力图改为单块 Canvas，表格独立刷新，筛选项只算一次 |
@@ -148,7 +151,7 @@ Droppy 插件 0.1.1 补齐收起刘海的常驻额度圆环与百分比，空闲
 ## 开发备忘
 
 - 构建与运行：`bash scripts/build-app.sh && open "dist/Sea Coffee.app"`
-- 检查：`swift run IslandChecks`（60 项）、`bash scripts/check-account-isolation.sh`、`bash scripts/check-credentials.sh`
+- 检查：`swift run IslandChecks`（61 项）、`bash scripts/check-account-isolation.sh`、`bash scripts/check-credentials.sh`
 - 静态预览（不读取凭据）：`dist/Sea\ Coffee.app/Contents/MacOS/SeaCoffee --render-preview dist/preview.png` 导出岛的四种状态（运行中、完成、提问、收起），`--render-settings /tmp/settings.png` 导出设置的四个分区，增加 `--dark` 可导出深色版。改界面前先读 `DESIGN.md`。
 - 目录：`Sources/IslandCore` 放与界面无关、可测试的逻辑（各家协议解析、会话状态机、凭据文件、PI-Desktop 数据库读取）；`Sources/SeaCoffee` 放界面与账号接入。
 - 几个关键决定：

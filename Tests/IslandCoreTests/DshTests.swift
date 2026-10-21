@@ -85,6 +85,37 @@ final class DshTests {
         expectEqual(received?.finished.count, 0, "Polling must not repeat the completion")
     }
 
+    /// The harness rewrites the cache of every session it lists, including old ones. A cache that
+    /// only now enters the two-day window must not announce a finish the monitor never watched.
+    func rewrittenOldCacheDoesNotNotify() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("session-old.json")
+        var received: MonitorSnapshot?
+        let monitor = SessionMonitor(sources: [SessionSource(agent: .dsh, path: root.path)]) { received = $0 }
+        monitor.poll()
+        expectEqual(received?.sessions.count, 0)
+
+        // An old, already finished session whose cache was just rewritten: new to the monitor.
+        try cache(running: false).write(to: file)
+        monitor.poll()
+        expectEqual(received?.sessions.first?.state, .completed)
+        expectEqual(received?.finished.count, 0, "A cache the monitor never saw running cannot finish")
+
+        // A turn the monitor did watch: running first, then finished.
+        try cache(running: true).write(to: file)
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(2)], ofItemAtPath: file.path)
+        monitor.poll()
+        expectEqual(received?.sessions.first?.state, .running)
+        try cache(running: false).write(to: file)
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(4)], ofItemAtPath: file.path)
+        monitor.poll()
+        expectEqual(received?.finished.map(\.agent), [.dsh])
+        monitor.poll()
+        expectEqual(received?.finished.count, 0, "Polling must not repeat the completion")
+    }
+
     /// A projection cache document shaped like DSH's: `{version, record: {identity, rows}}`, with
     /// versioned `{ver, seq, val}` row wrappers.
     private func cache(running: Bool, turns: Int = 3, steps: Int = 77, tokens: Bool = true,

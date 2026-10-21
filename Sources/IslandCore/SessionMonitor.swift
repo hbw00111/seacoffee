@@ -216,7 +216,10 @@ public final class SessionMonitor: @unchecked Sendable {
                     }
                     cursor.modified = modified
                     if parent != nil { cursors[url] = cursor; continue }
-                    if !firstScan, oldTransition != cursor.state.transitionID,
+                    // Only a finish this monitor watched counts: DSH rewrites the cache of every
+                    // session it lists, so an aged-out cache that comes back would otherwise
+                    // announce work that ended days ago.
+                    if !firstScan, !oldTransition.isEmpty, oldTransition != cursor.state.transitionID,
                        [.completed, .failed, .interrupted].contains(cursor.state.state), cursor.state.updatedAt >= launchedAt {
                         if cursor.state.state == .completed {
                             completions.append((url.standardizedFileURL.path, cursor.state))

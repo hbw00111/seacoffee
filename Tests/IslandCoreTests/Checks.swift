@@ -98,6 +98,7 @@ enum Checks {
             ("PI-Desktop database: completion notices", piDesktop.monitorReportsCompletion),
             ("DSH projection cache, tokens and speed", dsh.cacheAndSessionState),
             ("DSH snapshot monitoring and completion", dsh.storeAndMonitor),
+            ("rewritten old cache does not announce a finish", dsh.rewrittenOldCacheDoesNotNotify),
             ("monitor follows Claude, Grok and Cline together", agents.monitorsAllAgents),
             ("Claude background subagents keep a conversation running", agents.backgroundSubagents)
         ]
