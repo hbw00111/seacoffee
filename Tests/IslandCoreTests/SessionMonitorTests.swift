@@ -89,6 +89,26 @@ final class SessionMonitorTests {
         expectEqual(received?.finished.map(\.id), ["resumed.jsonl"])
     }
 
+    func testAuxiliaryCodexCallsStayOffTheIsland() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        // Claudian asks Codex for a title; the call can start and never write its end.
+        let aux = root.appendingPathComponent("aux.jsonl")
+        try (Data(#"{"type":"session_meta","payload":{"cwd":"/Users/example/Vault","originator":"claudian-aux"}}"#.utf8 + [10])
+             + line("task_started", at: Date())).write(to: aux)
+        let user = root.appendingPathComponent("user.jsonl")
+        try (Data(#"{"type":"session_meta","payload":{"cwd":"/Users/example/seacoffee","originator":"Codex Desktop"}}"#.utf8 + [10])
+             + line("task_started", at: Date())).write(to: user)
+        var received: MonitorSnapshot?
+        let monitor = SessionMonitor(path: root.path) { received = $0 }
+        monitor.poll()
+        expectEqual(received?.sessions.map(\.id), ["user.jsonl"], "An auxiliary call is not a running conversation")
+        try append(line("task_complete", at: Date().addingTimeInterval(1)), to: aux)
+        monitor.poll()
+        expectEqual(received?.finished.count, 0, "Finishing an auxiliary call announces nothing")
+    }
+
     private func line(_ kind: String, at date: Date) -> Data {
         let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return Data("{\"type\":\"event_msg\",\"timestamp\":\"\(formatter.string(from: date))\",\"payload\":{\"type\":\"\(kind)\"}}\n".utf8)

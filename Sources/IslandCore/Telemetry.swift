@@ -151,6 +151,9 @@ public struct SessionState: Equatable, Sendable, Identifiable {
     public var state: RunState = .unknown
     public var updatedAt: Date = .distantPast
     public var transitionID: String = ""
+    /// A background call another tool made through Codex (e.g. Claudian's `claudian-aux` title
+    /// request), not a conversation the user is running. It is left off the island.
+    public var auxiliary = false
     /// The latest question; replaced by the next one.
     public internal(set) var question: Question?
     /// Stopped on a question that has not been answered yet.
@@ -163,6 +166,7 @@ public struct SessionState: Equatable, Sendable, Identifiable {
               let payload = object["payload"] as? [String: Any] else { return }
         if object["type"] as? String == "session_meta" {
             if let cwd = payload["cwd"] as? String { project = URL(fileURLWithPath: cwd).lastPathComponent }
+            if let originator = payload["originator"] as? String { auxiliary = originator.lowercased().hasSuffix("-aux") }
             return
         }
         if object["type"] as? String == "turn_context" {

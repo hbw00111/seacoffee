@@ -87,6 +87,7 @@ enum Checks {
             ("incremental files and notification deduplication", monitor.testIncrementalWritesCompletionDeduplicationAndNoHistoricalNotification),
             ("resumed old conversation with concurrent completion", monitor.testResumedOldConversationSurvivesOtherConversationCompletion),
             ("file truncation and stale tasks", monitor.testTruncatedFileAndStaleRunningState),
+            ("auxiliary Codex calls stay off the island", monitor.testAuxiliaryCodexCallsStayOffTheIsland),
             ("Claude Code turns, tools, subagents and interrupts", agents.claudeTurns),
             ("Claude Code questions: waiting, answered, interrupted", agents.claudeQuestions),
             ("Codex questions: one-off notice", agents.codexQuestions),

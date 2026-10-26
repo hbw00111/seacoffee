@@ -215,7 +215,7 @@ public final class SessionMonitor: @unchecked Sendable {
                         try read(url, source: source, cursor: &cursor)
                     }
                     cursor.modified = modified
-                    if parent != nil { cursors[url] = cursor; continue }
+                    if parent != nil || cursor.state.auxiliary { cursors[url] = cursor; continue }
                     // Only a finish this monitor watched counts: DSH rewrites the cache of every
                     // session it lists, so an aged-out cache that comes back would otherwise
                     // announce work that ended days ago.
@@ -257,7 +257,7 @@ public final class SessionMonitor: @unchecked Sendable {
             if let state = mains[path], state.state == .completed, state.transitionID == transition { finished.append(state) }
         }
 
-        var states = cursors.filter { $0.value.parent == nil }.map { url, cursor -> SessionState in
+        var states = cursors.filter { $0.value.parent == nil && !$0.value.state.auxiliary }.map { url, cursor -> SessionState in
             var state = cursor.state
             if let active = busy[url.standardizedFileURL.path], state.state != .running {
                 state.state = .running

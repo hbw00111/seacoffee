@@ -88,6 +88,7 @@
 - DSH 的投影缓存是整份重写的 JSON（`record.rows` 里每行是 `{ver, seq, val}`），只在修改时间变化时读取；`sessionStats` 的 `openStep` 与 `turnBoundary` 的 `openTurnStartSeq` 决定是否运行中，轮次结束即视为完成，投影里没有成功 / 失败 / 取消的区分。`userQuestions.questions.active` 里的 `callId` 作为等待回答的标记，回答或消失后清除。空白会话（轮次与 Token 都为 0）保持未知。
 - PI-Desktop 不写 Pi 的 JSONL，而是存进自己的 SQLite 数据库。Sea Coffee 以只读方式（`mode=ro`，不用 `immutable`，以便看到最新的 WAL 数据）打开，每次只查询每个会话最新一轮的状态、起止时间、模型和项目名，不读取消息内容；数据库被占用时跳过这一轮，不等待 PI-Desktop。运行中的轮次用会话的 `updated_at` 判断是否仍有活动，长时间运行不会被误判为“未知”。
 - Codex 续聊会写回原创建日期的目录，因此按修改时间而非目录日期发现文件。
+- Codex 会话的 `session_meta.originator` 以 `-aux` 结尾（如 Obsidian Claudian 插件起标题用的 `claudian-aux`）时，视为其他工具的后台调用：不计入运行中，也不提示完成。这类调用常常只写 `task_started` 就中断。
 - 同时记录最近一次作答的模型名，用于完成提示：Codex 取 `turn_context.payload.model`，Claude Code 取 assistant 消息的 `message.model`（忽略错误占位 `<synthetic>`），Grok 取 `turn_started.model_id`，Cline 取会话文件的 `model`，Pi 取 assistant 消息的 `model`，DSH 取 `modelSelection.lastUsed.model`（显示时去掉 `deepseek/`、`cline-pass/` 这类路由前缀）。
 - Pi 可以接入多个渠道。模型前缀为 `cline-pass/` 时，完成提示会注明经由 Cline Pass，例如 `Pi · Cline Pass · glm-5.3-flash`；它消耗的额度计入同一个 Cline Pass 账号，岛上的 Cline 额度会随之变化。
 - 只保留事件类型、时间、项目目录名和模型名，对话内容只在解析时经过内存，不保存、不上传。
