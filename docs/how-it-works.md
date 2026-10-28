@@ -62,7 +62,7 @@ DSH Tokens 计入总量、缓存命中率与供应商 / 模型汇总，会话数
 - 令牌过期时的 `/usage` 兜底（参考 CodexBar 的 CLI PTY 方式，`ClaudeUsageProbe` + `IslandCore/ClaudeUsageScreen`）：
   - 在 `~/Library/Application Support/SeaIsland/ClaudeProbe` 里用 `openpty` 启动交互式 `claude --allowed-tools "" --strict-mcp-config --settings '{"disableAllHooks":true,"remoteControlAtStartup":false}'`，去掉继承的 `CLAUDE_CODE_*` 环境变量；看到输入提示后输入 `/usage` 回车，不发任何提问。文件夹信任提示只会出现在这个专用目录，出现时回车确认。
   - Claude Code 启动时会自己续期过期的令牌并写回钥匙串；Sea Coffee 随后重新读取凭据，优先用额度接口（重置时间更准确），读不到时才用屏幕结果。
-  - 续期确认（参考 CodexBar 的 delegated refresh）：探针前后各用 `security find-generic-password`（不带 `-w`，不读令牌）读一次该项的 `cdat` / `mdat`（`IslandCore/KeychainItemStamp`），CLI 退出后最多再等 2 秒。日期没变说明续期没有写回，即使屏幕读到额度也提示 `notRenewed`，1 小时内不再自动尝试，避免反复续期让轮换后的刷新令牌被服务器撤销；读不到日期（例如只有凭据文件）时不做判断，按原流程处理。
+  - 续期确认（参考 CodexBar 的 delegated refresh）：探针前后各用 `security find-generic-password`（不带 `-w`，不读令牌）读一次该项的 `cdat` / `mdat`（`IslandCore/KeychainItemStamp`）；探针要等 CLI 退出才返回，此时它的写入已经落盘。日期没变说明续期没有写回，即使屏幕读到额度也提示 `notRenewed`，1 小时内不再自动尝试，避免反复续期让轮换后的刷新令牌被服务器撤销；读不到日期（例如只有凭据文件）时不做判断，按原流程处理。
   - 屏幕解析：去掉 ANSI 转义，把光标移动换成空格或换行；`Current session` → `five_hour`，`Current week (all models)` → `seven_day`，含 Sonnet / Opus 的每周行 → 对应窗口；取标题后 3 行内的 `NN% used`（或 `% left`），`Resets 3pm (Asia/Shanghai)`、`Resets Oct 21, 11am` 解析为重置时间，读不懂时视为未知。屏幕多次重绘，以最后一帧为准；读到数值后再等 2.5 秒让每周窗口加载。Team 账号只显示当前会话窗口。
   - 计时分两段：等输入提示最多 90 秒（续期发生在这一段，不能被打断），输入 `/usage` 后读屏最多 30 秒。
   - 结束顺序与 CodexBar 相同：按 Esc 关闭 `/usage`，输入 `/exit` 回车并等 5 秒让 Claude Code 自己退出（期间持续读走终端输出）；仍未退出时对整棵进程树（`proc_listchildpids` 递归列出）发 SIGTERM，再等 2 秒后 SIGKILL 剩余进程，已退出的根进程不再发信号。之后删除 `~/.claude/projects/` 下该目录对应的会话文件夹（路径中非字母数字字符替换为 `-`）。Claude Code 自己的 `history.jsonl` 会多一行 `/usage`，`~/.claude.json` 会记下该目录，Sea Coffee 不改这两个文件。

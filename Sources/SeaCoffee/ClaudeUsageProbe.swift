@@ -100,26 +100,27 @@ enum ClaudeUsageProbe {
     /// then SIGTERM the whole process tree, and SIGKILL only what is still running after that.
     private static func stop(_ process: Process, type: (String) -> Void, pump: (TimeInterval) -> Void) {
         let root = process.processIdentifier
-        var tree = descendants(of: root)
+        // Listed up front: children reparented after the CLI exits can no longer be found from it.
+        let tree = descendants(of: root)
+        // An exited root's pid may already belong to someone else.
+        func running() -> [pid_t] { (process.isRunning ? [root] : []) + tree.filter { kill($0, 0) == 0 } }
+        func wait(_ seconds: TimeInterval, while busy: () -> Bool) {
+            let end = Date().addingTimeInterval(seconds)
+            while busy(), Date() < end { pump(0.1) }
+        }
         if process.isRunning {
             type("\u{1B}"); pump(0.3)
             type("/exit\r")
-            wait(for: process, seconds: 5, pump: pump)
+            wait(5) { process.isRunning }
         }
-        guard process.isRunning || tree.contains(where: isAlive) else { return }
-        tree = Array(Set(tree + descendants(of: root)))
-        // An exited root's pid may already belong to someone else.
-        signal((process.isRunning ? [root] : []) + tree, SIGTERM)
-        wait(for: process, seconds: 2, pump: pump)
-        signal((process.isRunning ? [root] : []) + tree, SIGKILL)
+        for signal in [SIGTERM, SIGKILL] {
+            let left = running()
+            guard !left.isEmpty else { return }
+            left.forEach { kill($0, signal) }
+            wait(2) { !running().isEmpty }
+        }
     }
 
-    private static func wait(for process: Process, seconds: TimeInterval, pump: (TimeInterval) -> Void) {
-        let end = Date().addingTimeInterval(seconds)
-        while process.isRunning, Date() < end { pump(0.1) }
-    }
-
-    /// Children are listed before signalling so that ones reparented after the CLI exits are still reached.
     private static func descendants(of pid: pid_t) -> [pid_t] {
         guard pid > 0 else { return [] }
         let count = proc_listchildpids(pid, nil, 0)
@@ -128,12 +129,6 @@ enum ClaudeUsageProbe {
         let found = proc_listchildpids(pid, &children, Int32(children.count * MemoryLayout<pid_t>.size))
         let direct = children.prefix(Int(max(found, 0))).filter { $0 > 0 }
         return direct + direct.flatMap { descendants(of: $0) }
-    }
-
-    private static func isAlive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
-
-    private static func signal(_ pids: [pid_t], _ signal: Int32) {
-        for pid in pids where isAlive(pid) { kill(pid, signal) }
     }
 
     /// Claude Code names a project's transcript folder after its path with every other

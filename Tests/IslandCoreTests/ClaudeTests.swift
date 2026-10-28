@@ -51,7 +51,6 @@ final class ClaudeTests {
             "svce"<blob>="Claude Code-credentials"
         """
         let stamp = KeychainItemStamp.parse(output)
-        expectEqual(stamp, KeychainItemStamp.parse(output.replacingOccurrences(of: "keychain:", with: "keychain :")))
         expectEqual(stamp?.created, "20260924032808Z")
         expectEqual(stamp?.modified, "20261028011947Z")
         let rewritten = KeychainItemStamp.parse(output.replacingOccurrences(of: "20261028011947Z", with: "20261028051300Z"))

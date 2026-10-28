@@ -113,16 +113,11 @@ final class ClaudeAccount: ObservableObject {
     /// Runs the probe and reports whether Claude Code rewrote its Keychain item, as CodexBar checks
     /// after its own CLI touch. Nil when the item's dates cannot be read, e.g. a file-only login.
     nonisolated private static func probeAndConfirmRenewal() -> (UsageSnapshot?, Bool?) {
-        let service = ClaudeProtocol.keychainService
-        let before = SecureStore.itemStampViaSecurityTool(service: service)
+        let before = SecureStore.itemStampViaSecurityTool(service: ClaudeProtocol.keychainService)
+        // The probe returns only after Claude Code has exited, so any write it made has landed.
         let screen = ClaudeUsageProbe.run()
-        var renewed = KeychainItemStamp.changed(from: before, to: SecureStore.itemStampViaSecurityTool(service: service))
-        // Claude Code has exited by now, but its write can take a moment to show up.
-        for _ in 0..<8 where renewed == false {
-            usleep(250_000)
-            renewed = KeychainItemStamp.changed(from: before, to: SecureStore.itemStampViaSecurityTool(service: service))
-        }
-        return (screen, renewed)
+        let after = SecureStore.itemStampViaSecurityTool(service: ClaudeProtocol.keychainService)
+        return (screen, KeychainItemStamp.changed(from: before, to: after))
     }
 
     private func loadCredentials(allowInteraction: Bool) async throws -> ClaudeCredentials {
