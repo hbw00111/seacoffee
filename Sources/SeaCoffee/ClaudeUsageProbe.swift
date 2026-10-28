@@ -6,13 +6,23 @@ import IslandCore
 /// renews its own expired login while starting up, so Sea Coffee never touches the token.
 /// No prompt is ever sent: the session has no tools, hooks or MCP servers, runs in its own
 /// folder, and that folder's transcript directory is removed afterwards.
+///
+/// Like CodexBar, the CLI is never cut off while it may be renewing: a refresh rotates the
+/// refresh token on the server, so killing Claude Code before it writes the new one back
+/// leaves a stale token in the Keychain that the server later revokes. Startup therefore has
+/// a long limit, and every exit starts with `/exit` before any signal.
 enum ClaudeUsageProbe {
     static var directory: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("SeaIsland/ClaudeProbe", isDirectory: true)
     }
 
-    static func run(timeout: TimeInterval = 30) -> UsageSnapshot? {
+    /// Waiting for the input prompt, which is when Claude Code renews an expired login.
+    static let startupLimit: TimeInterval = 90
+    /// Reading `/usage` once the prompt is up and the login is settled.
+    static let readLimit: TimeInterval = 30
+
+    static func run() -> UsageSnapshot? {
         let fileManager = FileManager.default
         let home = fileManager.homeDirectoryForCurrentUser.path
         // Apps launched from Finder do not inherit the shell's PATH.
@@ -40,10 +50,9 @@ enum ClaudeUsageProbe {
         process.standardInput = terminal; process.standardOutput = terminal; process.standardError = terminal
         do { try process.run() } catch { close(slave); return nil }
         close(slave)
-        defer { stop(process, master: master) }
 
         var output = Data()
-        let start = Date()
+        // Keeps draining the terminal so Claude Code never blocks on a full buffer, including while it exits.
         func pump(_ seconds: TimeInterval) {
             let end = Date().addingTimeInterval(seconds)
             var buffer = [UInt8](repeating: 0, count: 65_536)
@@ -57,23 +66,26 @@ enum ClaudeUsageProbe {
         }
         func screen(from offset: Int = 0) -> String { String(decoding: output.dropFirst(offset), as: UTF8.self) }
         func type(_ text: String) { _ = text.utf8CString.withUnsafeBufferPointer { write(master, $0.baseAddress, $0.count - 1) } }
+        defer { stop(process, type: type, pump: pump) }
 
         // Wait for the input prompt; the folder-trust question only appears in this probe folder.
-        var trusted = false
-        while Date().timeIntervalSince(start) < 15, process.isRunning {
+        let start = Date()
+        var trusted = false, ready = false
+        while Date().timeIntervalSince(start) < startupLimit, process.isRunning {
             pump(0.5)
             let text = screen().lowercased()
             if !trusted, text.contains("trust"), text.contains("folder") { type("\r"); trusted = true; continue }
-            if text.contains("❯"), Date().timeIntervalSince(start) > 2 { break }
+            if text.contains("❯"), Date().timeIntervalSince(start) > 2 { ready = true; break }
         }
-        guard process.isRunning else { return nil }
+        guard ready, process.isRunning else { return nil }
         type("/usage"); pump(0.6); type("\r")
         let mark = output.count
 
         // Keep reading a little after the first numbers so the weekly windows can load too.
+        let reading = Date()
         var settledAt: Date?
         var usage: UsageSnapshot?
-        while Date().timeIntervalSince(start) < timeout, process.isRunning {
+        while Date().timeIntervalSince(reading) < readLimit, process.isRunning {
             pump(0.5)
             if let parsed = ClaudeUsageScreen.usage(screen(from: mark)) {
                 usage = parsed
@@ -84,13 +96,44 @@ enum ClaudeUsageProbe {
         return usage
     }
 
-    private static func stop(_ process: Process, master: Int32) {
-        guard process.isRunning else { return }
-        _ = "\u{1B}".utf8CString.withUnsafeBufferPointer { write(master, $0.baseAddress, 1) }
-        process.terminate()
-        let end = Date().addingTimeInterval(2)
-        while process.isRunning, Date() < end { usleep(50_000) }
-        if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+    /// CodexBar's order: close `/usage`, ask Claude Code to `/exit` and let it finish writing,
+    /// then SIGTERM the whole process tree, and SIGKILL only what is still running after that.
+    private static func stop(_ process: Process, type: (String) -> Void, pump: (TimeInterval) -> Void) {
+        let root = process.processIdentifier
+        var tree = descendants(of: root)
+        if process.isRunning {
+            type("\u{1B}"); pump(0.3)
+            type("/exit\r")
+            wait(for: process, seconds: 5, pump: pump)
+        }
+        guard process.isRunning || tree.contains(where: isAlive) else { return }
+        tree = Array(Set(tree + descendants(of: root)))
+        // An exited root's pid may already belong to someone else.
+        signal((process.isRunning ? [root] : []) + tree, SIGTERM)
+        wait(for: process, seconds: 2, pump: pump)
+        signal((process.isRunning ? [root] : []) + tree, SIGKILL)
+    }
+
+    private static func wait(for process: Process, seconds: TimeInterval, pump: (TimeInterval) -> Void) {
+        let end = Date().addingTimeInterval(seconds)
+        while process.isRunning, Date() < end { pump(0.1) }
+    }
+
+    /// Children are listed before signalling so that ones reparented after the CLI exits are still reached.
+    private static func descendants(of pid: pid_t) -> [pid_t] {
+        guard pid > 0 else { return [] }
+        let count = proc_listchildpids(pid, nil, 0)
+        guard count > 0 else { return [] }
+        var children = [pid_t](repeating: 0, count: Int(count) + 16)
+        let found = proc_listchildpids(pid, &children, Int32(children.count * MemoryLayout<pid_t>.size))
+        let direct = children.prefix(Int(max(found, 0))).filter { $0 > 0 }
+        return direct + direct.flatMap { descendants(of: $0) }
+    }
+
+    private static func isAlive(_ pid: pid_t) -> Bool { pid > 0 && kill(pid, 0) == 0 }
+
+    private static func signal(_ pids: [pid_t], _ signal: Int32) {
+        for pid in pids where isAlive(pid) { kill(pid, signal) }
     }
 
     /// Claude Code names a project's transcript folder after its path with every other

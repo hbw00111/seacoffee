@@ -109,9 +109,22 @@ enum SecureStore {
     /// with that tool (Claude Code does) list it as trusted, so this never prompts and, unlike our
     /// own cdhash-bound grant, survives rebuilds. Returns nil on any failure or after 5 seconds.
     static func readViaSecurityTool(service: String) -> Data? {
+        guard let data = runSecurityTool(["find-generic-password", "-s", service, "-w"]) else { return nil }
+        let trimmed = data.prefix { $0 != 10 }
+        return trimmed.isEmpty ? nil : Data(trimmed)
+    }
+
+    /// The item's creation and modification dates, read the same way but without `-w`, so the
+    /// secret is never returned. Nil when the item is missing or unreadable.
+    static func itemStampViaSecurityTool(service: String) -> KeychainItemStamp? {
+        runSecurityTool(["find-generic-password", "-s", service])
+            .flatMap { KeychainItemStamp.parse(String(decoding: $0, as: UTF8.self)) }
+    }
+
+    private static func runSecurityTool(_ arguments: [String]) -> Data? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
-        process.arguments = ["find-generic-password", "-s", service, "-w"]
+        process.arguments = arguments
         let output = Pipe()
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
@@ -126,8 +139,7 @@ enum SecureStore {
         guard done.wait(timeout: .now() + 5) == .success else { process.terminate(); return nil }
         reader.sync {}
         guard process.terminationStatus == 0 else { return nil }
-        let trimmed = data.prefix { $0 != 10 }
-        return trimmed.isEmpty ? nil : Data(trimmed)
+        return data
     }
 
     /// Reads another app's generic password without storing it. Background reads never

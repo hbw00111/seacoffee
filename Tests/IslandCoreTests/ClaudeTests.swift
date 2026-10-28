@@ -39,6 +39,32 @@ final class ClaudeTests {
         expectError(.invalidResponse, try ClaudeCredentials.parse(data("garbage")))
     }
 
+    func keychainStamp() {
+        let output = """
+        keychain: "/Users/me/Library/Keychains/login.keychain-db"
+        class: "genp"
+        attributes:
+            0x00000007 <blob>="Claude Code-credentials"
+            "acct"<blob>="me"
+            "cdat"<timedate>=0x32303236303932343033323830385A00  "20260924032808Z\\000"
+            "mdat"<timedate>=0x32303236313032383031313934375A00  "20261028011947Z\\000"
+            "svce"<blob>="Claude Code-credentials"
+        """
+        let stamp = KeychainItemStamp.parse(output)
+        expectEqual(stamp, KeychainItemStamp.parse(output.replacingOccurrences(of: "keychain:", with: "keychain :")))
+        expectEqual(stamp?.created, "20260924032808Z")
+        expectEqual(stamp?.modified, "20261028011947Z")
+        let rewritten = KeychainItemStamp.parse(output.replacingOccurrences(of: "20261028011947Z", with: "20261028051300Z"))
+        expectEqual(KeychainItemStamp.changed(from: stamp, to: rewritten), true)
+        expectEqual(KeychainItemStamp.changed(from: stamp, to: stamp), false)
+        // Unreadable on either side is inconclusive, never a renewal or a failed one.
+        expectNil(KeychainItemStamp.changed(from: nil, to: stamp))
+        expectNil(KeychainItemStamp.changed(from: stamp, to: nil))
+        expectNil(KeychainItemStamp.parse(output.replacingOccurrences(of: "\"mdat\"", with: "\"xdat\"")))
+        expectNil(KeychainItemStamp.parse(output.replacingOccurrences(of: "\"20260924032808Z", with: "\"2026Z")))
+        expectNil(KeychainItemStamp.parse(""))
+    }
+
     func httpStatus() {
         let now = Date(timeIntervalSince1970: 1000)
         expectNoThrow(try ClaudeProtocol.validate(status: 200, retryAfter: nil))

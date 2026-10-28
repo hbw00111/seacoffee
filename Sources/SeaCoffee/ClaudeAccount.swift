@@ -93,18 +93,36 @@ final class ClaudeAccount: ObservableObject {
         guard allowInteraction || Date() >= nextProbe else { throw ClaudeError.expired }
         nextProbe = Date().addingTimeInterval(3600)
         onStatus?("Claude Code 登录已过期，正在通过 Claude Code /usage 读取额度…")
-        let screen = await Task.detached(priority: .utility) { ClaudeUsageProbe.run() }.value
+        let (screen, renewed) = await Task.detached(priority: .utility) { Self.probeAndConfirmRenewal() }.value
         try Task.checkCancellation()
         // Prefer the API once the CLI has renewed its login: it has exact reset dates.
         credentials = nil
-        if let renewed = try? await loadCredentials(allowInteraction: false) {
+        if renewed != false, let current = try? await loadCredentials(allowInteraction: false) {
             nextProbe = Date().addingTimeInterval(600)
-            do { return try await fetchUsage(renewed) } catch where screen != nil && !(error is CancellationError) {}
+            do { return try await fetchUsage(current) } catch where screen != nil && !(error is CancellationError) {}
         }
-        guard let screen else { throw ClaudeError.expired }
-        nextProbe = Date().addingTimeInterval(600)
+        guard let screen else { throw renewed == false ? ClaudeError.notRenewed : ClaudeError.expired }
         onUsage?(screen)
+        // The CLI answered but its Keychain item is unchanged: a renewal may not have been saved,
+        // and repeating it every ten minutes is what gets a rotated refresh token revoked.
+        guard renewed != false else { throw ClaudeError.notRenewed }
+        nextProbe = Date().addingTimeInterval(600)
         onStatus?("已通过 Claude Code /usage 更新\(plan.map { " · \($0)" } ?? "")")
+    }
+
+    /// Runs the probe and reports whether Claude Code rewrote its Keychain item, as CodexBar checks
+    /// after its own CLI touch. Nil when the item's dates cannot be read, e.g. a file-only login.
+    nonisolated private static func probeAndConfirmRenewal() -> (UsageSnapshot?, Bool?) {
+        let service = ClaudeProtocol.keychainService
+        let before = SecureStore.itemStampViaSecurityTool(service: service)
+        let screen = ClaudeUsageProbe.run()
+        var renewed = KeychainItemStamp.changed(from: before, to: SecureStore.itemStampViaSecurityTool(service: service))
+        // Claude Code has exited by now, but its write can take a moment to show up.
+        for _ in 0..<8 where renewed == false {
+            usleep(250_000)
+            renewed = KeychainItemStamp.changed(from: before, to: SecureStore.itemStampViaSecurityTool(service: service))
+        }
+        return (screen, renewed)
     }
 
     private func loadCredentials(allowInteraction: Bool) async throws -> ClaudeCredentials {

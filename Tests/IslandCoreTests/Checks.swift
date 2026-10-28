@@ -63,6 +63,7 @@ enum Checks {
             ("Claude Code credential parsing", claude.credentials),
             ("Claude HTTP status and rate limits", claude.httpStatus),
             ("Claude /usage screen fallback", claude.usageScreen),
+            ("Claude Keychain renewal stamp", claude.keychainStamp),
             ("Grok credit windows", grok.windows),
             ("Grok missing and invalid usage", grok.invalidUsage),
             ("Grok CLI credential parsing", grok.credentials),
