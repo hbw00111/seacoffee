@@ -638,7 +638,7 @@ private struct ClaudeAccountSettings: View {
 
                 }
             }
-            Text("先在 Claude Code 中登录，再连接到这里。登录信息只读，令牌仅保存在内存，不会更改原有账号。按设置的间隔更新额度（最短 2 分钟）；必要时系统会请求读取钥匙串。")
+            Text("先在 Claude Code 中登录，再连接到这里。登录信息只读，令牌仅保存在内存，不会更改原有账号。按设置的间隔更新额度（最短 2 分钟）；必要时系统会请求读取钥匙串。令牌过期时保留上次额度，不会在后台启动 Claude Code；点击“重新读取”才会打开一次 Claude Code 续期。")
                 .font(.system(size: 11)).foregroundStyle(Palette.dim).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
                 Button(account.enabled ? "重新读取" : "连接 Claude Code") { pending = true; account.connect() }

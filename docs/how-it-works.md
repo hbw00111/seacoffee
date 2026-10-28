@@ -59,14 +59,15 @@ DSH Tokens 计入总量、缓存命中率与供应商 / 模型汇总，会话数
 - 只读不写、从不刷新令牌（刷新会轮换 Claude Code 的刷新令牌，导致其登录失效），令牌仅保存在内存。过期时提示在终端运行一次 `claude` 续期。
 - 不发后台请求续期：`claude auth status`、`claude doctor`、非交互 `/status` 都不访问服务器，不会续期。2026-09-28 实测一次后台 `claude -p`：刷新令牌已失效时，CLI 续期失败后会**清空自己保存的登录**，因此不用 `claude -p`。
 - 每 2 分钟查询一次，遇到 429 按 `Retry-After` 退避。
-- 令牌过期时的 `/usage` 兜底（参考 CodexBar 的 CLI PTY 方式，`ClaudeUsageProbe` + `IslandCore/ClaudeUsageScreen`）：
+- 令牌过期时，后台刷新只保留上次额度并提示过期，不启动 Claude Code；等用户下次使用 Claude Code（终端、Claudian、VS Code 扩展）时由 CLI 自己续期，之后自动恢复。同类工具中最稳妥的做法也是这样（只读、过期只提示）。桌面版 Claude 用自己的登录，用它不会给这份登录续期。
+- 手动 `/usage` 兜底（参考 CodexBar 的 CLI PTY 方式，`ClaudeUsageProbe` + `IslandCore/ClaudeUsageScreen`）：只在用户点击“连接 Claude Code”/“重新读取”时运行：
   - 在 `~/Library/Application Support/SeaIsland/ClaudeProbe` 里用 `openpty` 启动交互式 `claude --allowed-tools "" --strict-mcp-config --settings '{"disableAllHooks":true,"remoteControlAtStartup":false}'`，去掉继承的 `CLAUDE_CODE_*` 环境变量；看到输入提示后输入 `/usage` 回车，不发任何提问。文件夹信任提示只会出现在这个专用目录，出现时回车确认。
   - Claude Code 启动时会自己续期过期的令牌并写回钥匙串；Sea Coffee 随后重新读取凭据，优先用额度接口（重置时间更准确），读不到时才用屏幕结果。
-  - 续期确认（参考 CodexBar 的 delegated refresh）：探针前后各用 `security find-generic-password`（不带 `-w`，不读令牌）读一次该项的 `cdat` / `mdat`（`IslandCore/KeychainItemStamp`）；探针要等 CLI 退出才返回，此时它的写入已经落盘。日期没变说明续期没有写回，即使屏幕读到额度也提示 `notRenewed`，1 小时内不再自动尝试，避免反复续期让轮换后的刷新令牌被服务器撤销；读不到日期（例如只有凭据文件）时不做判断，按原流程处理。
+  - 续期确认（参考 CodexBar 的 delegated refresh）：探针前后各用 `security find-generic-password`（不带 `-w`，不读令牌）读一次该项的 `cdat` / `mdat`（`IslandCore/KeychainItemStamp`）；探针要等 CLI 退出才返回，此时它的写入已经落盘。日期没变说明续期没有写回，即使屏幕读到额度也提示 `notRenewed`；读不到日期（例如只有凭据文件）时不做判断，按原流程处理。
   - 屏幕解析：去掉 ANSI 转义，把光标移动换成空格或换行；`Current session` → `five_hour`，`Current week (all models)` → `seven_day`，含 Sonnet / Opus 的每周行 → 对应窗口；取标题后 3 行内的 `NN% used`（或 `% left`），`Resets 3pm (Asia/Shanghai)`、`Resets Oct 21, 11am` 解析为重置时间，读不懂时视为未知。屏幕多次重绘，以最后一帧为准；读到数值后再等 2.5 秒让每周窗口加载。Team 账号只显示当前会话窗口。
   - 计时分两段：等输入提示最多 90 秒（续期发生在这一段，不能被打断），输入 `/usage` 后读屏最多 30 秒。
   - 结束顺序与 CodexBar 相同：按 Esc 关闭 `/usage`，输入 `/exit` 回车并等 5 秒让 Claude Code 自己退出（期间持续读走终端输出）；仍未退出时对整棵进程树（`proc_listchildpids` 递归列出）发 SIGTERM，再等 2 秒后 SIGKILL 剩余进程，已退出的根进程不再发信号。之后删除 `~/.claude/projects/` 下该目录对应的会话文件夹（路径中非字母数字字符替换为 `-`）。Claude Code 自己的 `history.jsonl` 会多一行 `/usage`，`~/.claude.json` 会记下该目录，Sea Coffee 不改这两个文件。
-  - 成功后至少 10 分钟、失败后 1 小时内不再自动尝试；用户点击刷新时不受限制。只在 `expired` 时触发，401 被拒（登录被撤销）不触发。
+  - 后台从不触发；只在点击后遇到 `expired` 时运行，401 被拒（登录被撤销）不触发。
 
 ### Grok
 

@@ -19,8 +19,6 @@ final class ClaudeAccount: ObservableObject {
     private var task: Task<Void, Never>?
     // The usage endpoint rate-limits aggressive polling; two minutes keeps the ring fresh enough.
     private let minimumInterval: TimeInterval = 120
-    /// Earliest next `/usage` probe: ten minutes after one that worked, an hour after one that did not.
-    private var nextProbe = Date.distantPast
     private lazy var session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.urlCache = nil
@@ -88,25 +86,23 @@ final class ClaudeAccount: ObservableObject {
 
     /// The token expired because Claude Code has not run for a while. Opening Claude Code's own
     /// `/usage` screen makes the CLI renew its login and shows the numbers; Sea Coffee still
-    /// never refreshes or writes the token.
+    /// never refreshes or writes the token. Only a click does this: in the background an expired
+    /// token just keeps the last numbers until Claude Code is used again and renews by itself,
+    /// so Sea Coffee never starts a renewal the user did not ask for.
     private func readThroughClaudeCode(allowInteraction: Bool) async throws {
-        guard allowInteraction || Date() >= nextProbe else { throw ClaudeError.expired }
-        nextProbe = Date().addingTimeInterval(3600)
+        guard allowInteraction else { throw ClaudeError.expired }
         onStatus?("Claude Code 登录已过期，正在通过 Claude Code /usage 读取额度…")
         let (screen, renewed) = await Task.detached(priority: .utility) { Self.probeAndConfirmRenewal() }.value
         try Task.checkCancellation()
         // Prefer the API once the CLI has renewed its login: it has exact reset dates.
         credentials = nil
         if renewed != false, let current = try? await loadCredentials(allowInteraction: false) {
-            nextProbe = Date().addingTimeInterval(600)
             do { return try await fetchUsage(current) } catch where screen != nil && !(error is CancellationError) {}
         }
         guard let screen else { throw renewed == false ? ClaudeError.notRenewed : ClaudeError.expired }
         onUsage?(screen)
-        // The CLI answered but its Keychain item is unchanged: a renewal may not have been saved,
-        // and repeating it every ten minutes is what gets a rotated refresh token revoked.
+        // The CLI answered but its Keychain item is unchanged: a renewal may not have been saved.
         guard renewed != false else { throw ClaudeError.notRenewed }
-        nextProbe = Date().addingTimeInterval(600)
         onStatus?("已通过 Claude Code /usage 更新\(plan.map { " · \($0)" } ?? "")")
     }
 

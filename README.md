@@ -82,7 +82,7 @@ bash scripts/build-droplet.sh
 ## 安全与隐私
 
 - 自己保存的凭据（Sub2API Key、Cline 登录或 Key）存放在 `~/Library/Application Support/SeaIsland/credentials.json`，权限 `0600`，原子写入。选择文件而非钥匙串，是因为未使用 Apple Developer ID 签名时，钥匙串授权会绑定到每次构建的二进制哈希，重新编译后全部失效。
-- Claude、Grok 的令牌只读、仅保存在内存，从不刷新或写回，不会影响原工具的登录。令牌过期时只让原 CLI 自己续期：Grok 运行一次 `grok models`；Claude 在独立目录里打开一次 Claude Code 的 `/usage` 读取额度（无工具、无钩子、不发提问，结束后删除会话记录）。
+- Claude、Grok 的令牌只读、仅保存在内存，从不刷新或写回，不会影响原工具的登录。令牌过期时只让原 CLI 自己续期：Grok 运行一次 `grok models`；Claude 在后台从不启动 Claude Code，只保留上次额度并提示，等你下次使用 Claude Code 时由它自己续期，点击“重新读取”时才在独立目录里打开一次 `/usage` 读取额度（无工具、无钩子、不发提问，结束后删除会话记录）。
 - 所有请求拒绝跟随重定向，凭据不写入日志或 UserDefaults。
 - Claude、Grok、Cline 的额度接口是各家官网或 CLI 使用的接口，并非公开稳定 API，格式变化时会保留旧值并提示，而不是显示错误数字。
 
