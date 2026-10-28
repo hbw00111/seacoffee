@@ -781,12 +781,12 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case accounts = "账号与额度", usage = "用量", activity = "任务监测", appearance = "外观与交互"
     var id: String { rawValue }
     var symbol: String {
-        switch self { case .accounts: return "person.crop.circle"; case .usage: return "chart.bar.xaxis"; case .activity: return "waveform.path"; case .appearance: return "slider.horizontal.3" }
+        switch self { case .accounts: return "person.crop.circle"; case .usage: return "list.bullet.rectangle"; case .activity: return "waveform.path"; case .appearance: return "slider.horizontal.3" }
     }
     var subtitle: String {
         switch self {
         case .accounts: return "连接你的 AI 服务，集中查看剩余额度。"
-        case .usage: return "查看调用消耗、模型分布与额度变化。"
+        case .usage: return "统一查看各工具的使用记录与额度变化。"
         case .activity: return "选择需要关注的工具，掌握每次任务的进展。"
         case .appearance: return "让状态岛按照你的习惯工作。"
         }

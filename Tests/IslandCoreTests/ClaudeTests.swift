@@ -11,7 +11,6 @@ final class ClaudeTests {
         expectEqual(usage.quotas.map(\.monetary), [false, false, false])
         expectEqual(usage.quotas.first?.resetsAt, UsageDecoder.date("2026-09-26T15:00:00.123Z"))
         expectNil(usage.quotas[1].resetsAt)
-        expectEqual(usage.source, "Claude")
         // Weekly becomes primary when the session window is missing.
         let weekly = try ClaudeProtocol.usage(data(#"{"five_hour":null,"seven_day":{"utilization":"40"}}"#))
         expectEqual(weekly.quotas.first?.label, "每周")
@@ -75,7 +74,6 @@ final class ClaudeTests {
         expectEqual(usage.quotas[0].resetsAt, Date(timeIntervalSince1970: 1_792_306_800))  // today 15:00
         expectEqual(usage.quotas[1].resetsAt, Date(timeIntervalSince1970: 1_792_551_600))  // Oct 21 11:00
         expectEqual(usage.quotas[2].resetsAt, Date(timeIntervalSince1970: 1_798_939_800))  // next Jan 3 09:30
-        expectEqual(usage.source, "Claude")
 
         // A time already passed today means tomorrow.
         expectEqual(ClaudeUsageScreen.usage("Current session\n50% used\nResets 9am", now: now, timeZone: shanghai)?

@@ -11,7 +11,6 @@ final class ClineTests {
         expectEqual(usage.quotas.map(\.monetary), [false, false, false])
         expectEqual(usage.quotas.first?.resetsAt, UsageDecoder.date("2026-09-22T12:00:00Z"))
         expectNil(usage.balance)
-        expectEqual(usage.source, "Cline Pass")
     }
 
     func invalidUsage() {

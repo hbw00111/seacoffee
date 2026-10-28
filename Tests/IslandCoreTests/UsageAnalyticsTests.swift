@@ -100,9 +100,6 @@ final class UsageAnalyticsTests {
         // Today: details only. 30 days: the old rollup is outside. All: the rollup day is included.
         let today = UsageStatsReport(data, range: .today, now: now, calendar: calendar)
         expectEqual(today.totals.requests, 6)
-        expectEqual(today.hourly, true)
-        expectEqual(today.buckets.count, 15)
-        expectEqual(today.buckets.reduce(0) { $0 + $1.totals.requests }, 6)
         expectEqual(today.logs.first?.id, "recorded")
         expectEqual(today.logs(status: 500).map(\.id), ["failed"])
         expectEqual(today.totals.successRate, 5.0 / 6.0)
@@ -111,8 +108,6 @@ final class UsageAnalyticsTests {
         let all = UsageStatsReport(data, range: .all, now: now, calendar: calendar)
         expectEqual(all.totals.requests, 7 + 10)
         expectEqual(all.totals.cost, 1.25 + 2.5 + 0.5 + 2.5)
-        expectEqual(all.hourly, false)
-        expectEqual(all.buckets.count, 41)
         expectEqual(UsageStatsReport(data, range: .month, now: now, calendar: calendar).totals.requests, 7)
 
         // Tables: providers by (id, app), models by pricing model, sorted by requests.
@@ -126,20 +121,85 @@ final class UsageAnalyticsTests {
         expectEqual(codex.totals.requests, 3 + 10)
         expectEqual(UsageStatsReport(data, range: .all, filter: UsageFilter(provider: "Desk"), now: now, calendar: calendar).totals.requests, 3)
 
-        // Heatmap: Monday-first columns ending this week; quartile levels over non-zero days.
-        let heatmap = UsageHeatmap(data, metric: .requests, now: now, calendar: calendar)
-        expectEqual(heatmap.weeks.count, 53)
-        expectEqual(heatmap.weeks.allSatisfy { $0.count == 7 }, true)
-        expectEqual(calendar.component(.weekday, from: heatmap.weeks[0][0].date), 2)
-        let days = heatmap.weeks.flatMap { $0 }
-        expectEqual(days.first { calendar.isDate($0.date, inSameDayAs: now) }?.value, 6)
-        expectEqual(days.first { calendar.isDate($0.date, inSameDayAs: now) }?.level, 2)  // days 1, 6, 10 → thresholds 1, 6, 10
-        expectEqual(days.filter(\.future).allSatisfy { $0.value == 0 }, true)
-        expectEqual(days.map(\.level).max(), 3)
-
         expectThrows(try UsageStats.read(at: root.appendingPathComponent("absent.db")))
         expectEqual(FileManager.default.fileExists(atPath: root.appendingPathComponent("absent.db").path), false)
     }
+    func combinedRecords() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        let now = Date(timeIntervalSince1970: 1_792_306_800)
+        let (root, url) = try database(now: now, calendar: calendar)
+        defer { try? FileManager.default.removeItem(at: root) }
+        var data = try UsageStats.read(at: url)
+        data.dshSessions = [try session(id: "recorded", at: now.addingTimeInterval(-30)),
+                            try session(id: "old", at: now.addingTimeInterval(-86_401)),
+                            try session(id: "future", at: now.addingTimeInterval(60)),
+                            try session(id: "blank", at: now, blank: true)]
+        let requests = UsageStatsReport(try UsageStats.read(at: url), range: .today, now: now, calendar: calendar)
+        let report = UsageStatsReport(data, range: .today, now: now, calendar: calendar)
+        expectEqual(report.totals.requests, requests.totals.requests, "a DSH session is not a request")
+        expectEqual(report.totals.sessions, 1)
+        expectEqual(report.totals.recordCount, 7)
+        expectEqual(report.totals.cost, requests.totals.cost, "DSH does not invent a price")
+        expectEqual(report.totals.successRate, requests.totals.successRate, "DSH has no HTTP result")
+        expectEqual(report.totals.realTokens, requests.totals.realTokens + 1200)
+        expectEqual(report.totals.speed?.value, 80, "measured decode spans use a ratio of sums")
+        expectEqual(report.records.first?.id, "dsh:recorded")
+        expectEqual(Set(report.records.map(\.id)).count, report.records.count, "request and session IDs cannot collide")
+        expectEqual(report.logs.count, 6)
+        let dsh = UsageStatsReport(data, range: .today, filter: UsageFilter(app: "dsh"), now: now, calendar: calendar)
+        expectEqual(dsh.records.map(\.id), ["dsh:recorded"])
+        let codex = UsageStatsReport(data, range: .today, filter: UsageFilter(app: "codex"), now: now, calendar: calendar)
+        expectEqual(codex.totals.sessions, 0)
+        let model = UsageStatsReport(data, range: .today, filter: UsageFilter(model: "gpt-5"), now: now, calendar: calendar)
+        expectEqual(model.totals.requests, 1)
+        expectEqual(model.totals.sessions, 1)
+        expectEqual(model.models.count, 1)
+        expectEqual(model.models.first?.totals.sessions, 1)
+        expectEqual(model.providers.filter { $0.app == "dsh" }.first?.name, "Relay")
+        expectEqual(UsageStatsReport(data, range: .today, filter: UsageFilter(provider: "Relay"), now: now, calendar: calendar).totals.sessions, 1)
+        expectEqual(data.apps.contains("dsh"), true)
+        expectEqual(data.models.contains("gpt-5"), true)
+        let all = UsageStatsReport(data, range: .all, now: now, calendar: calendar)
+        expectEqual(all.totals.sessions, 2)
+        expectEqual(all.totals.requests, 17, "daily rollups remain in totals, not the detail timeline")
+        expectEqual(all.records.count, 9)
+    }
+
+    func dshOnlyRecords() throws {
+        let now = Date(timeIntervalSince1970: 1_792_306_800)
+        let sessions = try (0..<45).map { try session(id: "s-\($0)", at: now.addingTimeInterval(-Double($0))) }
+        let data = UsageDataset(dshSessions: sessions)
+        let report = UsageStatsReport(data, range: .all, now: now)
+        expectEqual(report.records.count, 45, "the unified pager must receive every session")
+        expectEqual(report.totals.requests, 0)
+        expectEqual(report.totals.sessions, 45)
+        expectEqual(report.totals.realTokens, 45 * 1200)
+        expectNil(report.totals.successRate)
+        expectNil(report.totals.averageCost)
+        expectEqual(report.providers.first?.totals.sessions, 45)
+        expectEqual(report.models.first?.totals.sessions, 45)
+        expectEqual(data.apps, ["dsh"])
+        expectEqual(data.providers, ["Relay"])
+        expectEqual(data.models, ["gpt-5"])
+        expectEqual(report.records.last?.id, "dsh:s-44")
+    }
+
+    private func session(id: String, at date: Date, blank: Bool = false) throws -> DshSession {
+        let rows: [String: Any] = [
+            "sessionStats": ["val": ["turns": blank ? 0 : 2, "steps": blank ? 0 : 4,
+                                     "decodeMs": 1000, "decodeTokens": 200]],
+            "tokenUsage": ["val": ["totals": ["uncachedInputTokens": blank ? 0 : 300,
+                                                "outputTokens": blank ? 0 : 200, "cacheReadTokens": blank ? 0 : 600,
+                                                "cacheWriteTokens": blank ? 0 : 100]]],
+            "modelSelection": ["val": ["lastUsed": ["model": "route/gpt-5", "provider": "Relay"]]],
+            "sessionListMetadata": ["val": ["lastPromptAt": date.timeIntervalSince1970 * 1000]]
+        ]
+        let json = try JSONSerialization.data(withJSONObject: ["record": ["identity": ["createdAt": date.timeIntervalSince1970 * 1000], "rows": rows]])
+        guard let session = DshStore.parse(json, id: id, modified: date) else { throw UsageReadError.incompatible }
+        return session
+    }
+
     func quotaHistory() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let url = root.appendingPathComponent("history.json")
@@ -147,7 +207,7 @@ final class UsageAnalyticsTests {
         let store = QuotaHistoryStore(url: url)
         let start = Date(timeIntervalSince1970: 1_800_000_000)
         func snapshot(_ offset: Double, _ balance: Double) -> UsageSnapshot {
-            UsageSnapshot(quotas: [Quota(id:"wallet",label:"余额基准",remaining:balance,limit:100)],balance:balance,source:"test",fetchedAt:start.addingTimeInterval(offset))
+            UsageSnapshot(quotas: [Quota(id:"wallet",label:"余额基准",remaining:balance,limit:100)],balance:balance,fetchedAt:start.addingTimeInterval(offset))
         }
         try await store.record(provider:"A",usage:snapshot(0,80))
         try await store.record(provider:"A",usage:snapshot(60,70))

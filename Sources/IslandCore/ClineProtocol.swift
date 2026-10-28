@@ -131,7 +131,7 @@ public enum ClineProtocol {
                          monetary: false, resetsAt: UsageDecoder.date(item["resetsAt"]))
         }
         guard !quotas.isEmpty else { throw TelemetryError.unsupported }
-        return UsageSnapshot(quotas: quotas, source: "Cline Pass")
+        return UsageSnapshot(quotas: quotas)
     }
 
     public static func form(_ fields: [String: String]) -> Data {

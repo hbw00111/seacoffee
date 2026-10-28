@@ -22,7 +22,9 @@ enum Checks {
         let telemetry = TelemetryTests(); let monitor = SessionMonitorTests()
         let checks: [(String, () async throws -> Void)] = [
             ("usage cache normalization", UsageAnalyticsTests().normalization),
-            ("usage statistics matching CC Switch: dedup, cost, speed, rollups, heatmap", UsageAnalyticsTests().statistics),
+            ("usage statistics matching CC Switch: dedup, cost, speed, rollups", UsageAnalyticsTests().statistics),
+            ("unified usage: DSH sessions, requests, filters and groups", UsageAnalyticsTests().combinedRecords),
+            ("DSH-only usage without request data or fabricated costs", UsageAnalyticsTests().dshOnlyRecords),
             ("model pricing candidates in CC Switch order", ModelPricingTests().candidates),
             ("model pricing exact and prefix lookup", ModelPricingTests().lookup),
             ("cost calculation by input semantics and multiplier", ModelPricingTests().cost),

@@ -71,7 +71,7 @@ public enum GrokProtocol {
         } else { throw GrokError.invalidResponse }
         let quota = Quota(id: "grok-credits", label: label(type: period?["type"] as? String, start: start, end: end),
                           remaining: 100 - min(100, max(0, used)), limit: 100, monetary: false, resetsAt: end)
-        return UsageSnapshot(quotas: [quota], source: "Grok")
+        return UsageSnapshot(quotas: [quota])
     }
 
     public static func plan(_ data: Data) -> String? {

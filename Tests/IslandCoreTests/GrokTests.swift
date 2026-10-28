@@ -10,7 +10,6 @@ final class GrokTests {
         expectEqual(usage.quotas.map(\.percent), [90])
         expectEqual(usage.quotas.first?.monetary, false)
         expectEqual(usage.quotas.first?.resetsAt, UsageDecoder.date("2026-09-30T03:15:23.440068+00:00"))
-        expectEqual(usage.source, "Grok")
         // Without the current period, the billing period supplies both bounds; on-demand spend is the fallback.
         let monthly = try GrokProtocol.usage(data(#"{"config":{"onDemandCap":{"val":2000},"onDemandUsed":{"val":500},"billingPeriodStart":"2026-09-01T00:00:00Z","billingPeriodEnd":"2026-10-01T00:00:00Z"}}"#))
         expectEqual(monthly.quotas.first?.label, "每月")

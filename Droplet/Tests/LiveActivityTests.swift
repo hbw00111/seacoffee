@@ -21,13 +21,13 @@ struct LiveActivityChecks {
         droplet.model.demo = false
         droplet.model.sessions = []
         droplet.model.notice = nil
-        droplet.model.snapshot = UsageSnapshot(quotas: [Quota(id: "wallet", label: "余额基准", remaining: 68, limit: 100)], source: "test")
+        droplet.model.snapshot = UsageSnapshot(quotas: [Quota(id: "wallet", label: "余额基准", remaining: 68, limit: 100)])
         try await Task.sleep(nanoseconds: 250_000_000)
         precondition(!droplet.model.isRunning)
         precondition(latest?.joinsPersistentActivitySet == true)
         precondition(latest?.accessibilityTitle.contains("68%") == true)
 
-        droplet.model.snapshot = UsageSnapshot(quotas: [Quota(id: "wallet", label: "余额基准", remaining: 19, limit: 100)], source: "test")
+        droplet.model.snapshot = UsageSnapshot(quotas: [Quota(id: "wallet", label: "余额基准", remaining: 19, limit: 100)])
         try await Task.sleep(nanoseconds: 250_000_000)
         precondition(latest?.accessibilityTitle.contains("19%") == true)
         precondition(latest?.accessibilityTitle.contains("68%") != true)
@@ -40,7 +40,7 @@ struct LiveActivityChecks {
 
         session.deactivate()
         precondition(latest == nil)
-        droplet.model.snapshot = UsageSnapshot(quotas: [], source: "after-stop")
+        droplet.model.snapshot = UsageSnapshot(quotas: [])
         try await Task.sleep(nanoseconds: 250_000_000)
         precondition(latest == nil)
         print("PASS persistent idle quotas, refreshed values, unknown values, deactivation")

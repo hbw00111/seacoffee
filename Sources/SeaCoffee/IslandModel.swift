@@ -74,6 +74,7 @@ final class IslandModel: ObservableObject {
     @Published var serviceMessage = "在设置中添加 API Key，即可查看真实余额"
     @Published var monitorMessage: String?
     @Published var sessions: [SessionState] = []
+    private var monitorClock: (minute: Int, stale: [Bool])?
     @Published var refreshing = false
     @Published var demo = false
     @Published var demoRunning = true
@@ -162,30 +163,29 @@ final class IslandModel: ObservableObject {
         }
     }
     var displayedSnapshot: UsageSnapshot? {
-        demo ? UsageSnapshot(quotas: [Quota(id: "wallet", label: "余额基准", remaining: 68.4, limit: 100)], balance: 68.4, source: "演示数据") : snapshot
+        demo ? UsageSnapshot(quotas: [Quota(id: "wallet", label: "余额基准", remaining: 68.4, limit: 100)], balance: 68.4) : snapshot
     }
     var displayedClineSnapshot: UsageSnapshot? {
         demo ? UsageSnapshot(quotas: [
             Quota(id: "five_hour", label: "5 小时", remaining: 72, limit: 100, monetary: false, resetsAt: Date().addingTimeInterval(10800)),
             Quota(id: "weekly", label: "每周", remaining: 61, limit: 100, monetary: false, resetsAt: Date().addingTimeInterval(259200)),
             Quota(id: "monthly", label: "每月", remaining: 48, limit: 100, monetary: false)
-        ], source: "Cline Pass") : clineSnapshot
+        ]) : clineSnapshot
     }
     var displayedClaudeSnapshot: UsageSnapshot? {
         demo ? UsageSnapshot(quotas: [
             Quota(id: "claude-five_hour", label: "5 小时", remaining: 58, limit: 100, monetary: false, resetsAt: Date().addingTimeInterval(7200)),
             Quota(id: "claude-seven_day", label: "每周", remaining: 83, limit: 100, monetary: false, resetsAt: Date().addingTimeInterval(345600))
-        ], source: "Claude") : claudeSnapshot
+        ]) : claudeSnapshot
     }
     var showsClaude: Bool { demo || claudeAccount.enabled || claudeSnapshot != nil }
     // Claude polls every two minutes, so allow one missed refresh before dimming.
-    var claudeIsStale: Bool { !demo && claudeSnapshot.map { Date().timeIntervalSince($0.fetchedAt) > staleAfter(300) } == true }
+    var claudeIsStale: Bool { quotaIsStale(claudeSnapshot, floor: 300) }
     var displayedGrokSnapshot: UsageSnapshot? {
-        demo ? UsageSnapshot(quotas: [Quota(id: "grok-credits", label: "每周", remaining: 90, limit: 100, monetary: false, resetsAt: Date().addingTimeInterval(172800))],
-                             source: "Grok") : grokSnapshot
+        demo ? UsageSnapshot(quotas: [Quota(id: "grok-credits", label: "每周", remaining: 90, limit: 100, monetary: false, resetsAt: Date().addingTimeInterval(172800))]) : grokSnapshot
     }
     var showsGrok: Bool { demo || grokAccount.enabled || grokSnapshot != nil }
-    var grokIsStale: Bool { !demo && grokSnapshot.map { Date().timeIntervalSince($0.fetchedAt) > staleAfter(300) } == true }
+    var grokIsStale: Bool { quotaIsStale(grokSnapshot, floor: 300) }
     var planLanes: [PlanLane] {
         var lanes = [PlanLane(id: "CL", title: "Cline Pass", snapshot: displayedClineSnapshot, stale: clineIsStale, message: clineMessage,
                               loading: clineAccount.busy && clineSnapshot == nil, failed: clineAccount.lastSucceeded == false)]
@@ -199,9 +199,12 @@ final class IslandModel: ObservableObject {
         }
         return lanes
     }
-    var clineIsStale: Bool { !demo && clineSnapshot.map { Date().timeIntervalSince($0.fetchedAt) > staleAfter(180) } == true }
+    var clineIsStale: Bool { quotaIsStale(clineSnapshot, floor: 180) }
     var primary: Quota? { displayedSnapshot?.quotas.first }
-    var isStale: Bool { !demo && snapshot.map { Date().timeIntervalSince($0.fetchedAt) > staleAfter(180) } == true }
+    var isStale: Bool { quotaIsStale(snapshot, floor: 180) }
+    private func quotaIsStale(_ usage: UsageSnapshot?, floor: TimeInterval, now: Date = Date()) -> Bool {
+        !demo && usage.map { now.timeIntervalSince($0.fetchedAt) > staleAfter(floor) } == true
+    }
     /// A quota is stale after missing two scheduled refreshes, never sooner than the account's own floor.
     func staleAfter(_ floor: TimeInterval) -> TimeInterval { max(floor, Double(refreshMinutes) * 120 + 60) }
     /// "Claude Code · claude-opus-5-5" under the completion check.
@@ -354,6 +357,19 @@ final class IslandModel: ObservableObject {
         refreshTimer = nil; monitor = nil
         notice = nil; completion = nil; refreshing = false; demo = false
     }
+    /// Keep unchanged polls quiet, retaining minute countdowns and exact stale-state transitions.
+    func updateMonitoredSessions(_ sessions: [SessionState], message: String?, now: Date = Date()) {
+        let clock = (minute: Int(now.timeIntervalSince1970 / 60), stale: [
+            quotaIsStale(snapshot, floor: 180, now: now), quotaIsStale(clineSnapshot, floor: 180, now: now),
+            quotaIsStale(claudeSnapshot, floor: 300, now: now), quotaIsStale(grokSnapshot, floor: 300, now: now)
+        ])
+        let clockChanged = monitorClock.map { $0.minute != clock.minute || $0.stale != clock.stale } ?? false
+        monitorClock = clock
+        let sessionsChanged = self.sessions != sessions, messageChanged = monitorMessage != message
+        if sessionsChanged { self.sessions = sessions }
+        if messageChanged { monitorMessage = message }
+        if clockChanged && !sessionsChanged && !messageChanged { objectWillChange.send() }
+    }
     func startMonitor() {
         guard !stopped else { return }
         monitor?.stop()
@@ -361,7 +377,7 @@ final class IslandModel: ObservableObject {
         monitor = SessionMonitor(sources: SessionSource.defaults(codexPath: sessionPath, enabled: watchedAgents)) { [weak self] update in
             Task { @MainActor in
                 guard let self, self.generation == token else { return }
-                self.sessions = update.sessions; self.monitorMessage = update.message
+                self.updateMonitoredSessions(update.sessions, message: update.message)
                 for asked in update.asked { self.showNotice(asked, kind: .question) }
                 for finished in update.finished { self.showNotice(finished) }
                 if !update.finished.isEmpty { self.refresh() }

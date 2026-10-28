@@ -40,7 +40,7 @@ public enum ClaudeUsageScreen {
         }
         let order = ["five_hour", "seven_day", "seven_day_sonnet", "seven_day_opus"]
         let quotas = order.compactMap { found[$0] }
-        return quotas.isEmpty ? nil : UsageSnapshot(quotas: quotas, source: "Claude", fetchedAt: now)
+        return quotas.isEmpty ? nil : UsageSnapshot(quotas: quotas, fetchedAt: now)
     }
 
     static func window(_ line: String) -> (String, String)? {

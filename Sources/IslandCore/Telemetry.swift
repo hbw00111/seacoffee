@@ -19,10 +19,9 @@ public struct Quota: Identifiable, Equatable, Sendable {
 public struct UsageSnapshot: Equatable, Sendable {
     public let quotas: [Quota]
     public let balance: Double?
-    public let source: String
     public let fetchedAt: Date
-    public init(quotas: [Quota], balance: Double? = nil, source: String, fetchedAt: Date = Date()) {
-        self.quotas = quotas; self.balance = balance; self.source = source; self.fetchedAt = fetchedAt
+    public init(quotas: [Quota], balance: Double? = nil, fetchedAt: Date = Date()) {
+        self.quotas = quotas; self.balance = balance; self.fetchedAt = fetchedAt
     }
 }
 
@@ -89,7 +88,7 @@ public enum UsageDecoder {
             quotas.append(Quota(id: "wallet", label: "余额基准", remaining: balance, limit: baseline))
         }
         guard !quotas.isEmpty else { throw TelemetryError.unsupported }
-        return UsageSnapshot(quotas: quotas, balance: balance, source: "Sub2API")
+        return UsageSnapshot(quotas: quotas, balance: balance)
     }
 
     public static func official(_ object: [String: Any]) throws -> UsageSnapshot {
@@ -109,7 +108,7 @@ public enum UsageDecoder {
                                 resetsAt: date(w["resetsAt"] ?? w["resets_at"])))
         }
         guard !quotas.isEmpty else { throw TelemetryError.unsupported }
-        return UsageSnapshot(quotas: quotas, source: "Codex 官方")
+        return UsageSnapshot(quotas: quotas)
     }
 
     public static func number(_ value: Any?) -> Double? {
@@ -228,6 +227,6 @@ extension UsageSnapshot {
         UsageSnapshot(quotas: quotas.map {
             $0.id == "wallet" ? Quota(id: $0.id, label: $0.label, remaining: $0.remaining, limit: baseline,
                                       monetary: $0.monetary, resetsAt: $0.resetsAt) : $0
-        }, balance: balance, source: source, fetchedAt: fetchedAt)
+        }, balance: balance, fetchedAt: fetchedAt)
     }
 }

@@ -79,18 +79,45 @@ public struct UsageRollup: Sendable {
 public struct UsageDataset: Sendable {
     public var logs: [UsageLog]
     public var rollups: [UsageRollup]
-    public init(logs: [UsageLog] = [], rollups: [UsageRollup] = []) { self.logs = logs; self.rollups = rollups }
-    public var apps: [String] { Array(Set(logs.map(\.app) + rollups.map(\.app))).sorted() }
-    public var providers: [String] { Array(Set(logs.map(\.provider) + rollups.map(\.provider))).sorted() }
-    public var models: [String] { Array(Set(logs.map(\.groupModel) + rollups.map(\.groupModel))).sorted() }
-    public var firstDay: String? { (logs.map { UsageStats.day($0.date) } + rollups.map(\.day)).min() }
+    public var dshSessions: [DshSession]
+    public init(logs: [UsageLog] = [], rollups: [UsageRollup] = [], dshSessions: [DshSession] = []) {
+        self.logs = logs; self.rollups = rollups; self.dshSessions = dshSessions
+    }
+    public var apps: [String] { Array(Set(logs.map(\.app) + rollups.map(\.app) + (dshSessions.isEmpty ? [] : ["dsh"]))).sorted() }
+    public var providers: [String] { Array(Set(logs.map(\.provider) + rollups.map(\.provider) + dshSessions.map { UsageRecord.dsh($0).provider })).sorted() }
+    public var models: [String] { Array(Set(logs.map(\.groupModel) + rollups.map(\.groupModel) + dshSessions.map { UsageRecord.dsh($0).model })).sorted() }
+}
+
+/// A request and a whole-session counter share a timeline, without inventing request counts or costs.
+public enum UsageRecord: Identifiable, Sendable {
+    case request(UsageLog)
+    case dsh(DshSession)
+
+    public var id: String {
+        switch self { case .request(let log): return "request:\(log.id)"; case .dsh(let session): return "dsh:\(session.id)" }
+    }
+    public var date: Date {
+        switch self { case .request(let log): return log.date; case .dsh(let session): return session.lastPromptAt }
+    }
+    public var app: String {
+        switch self { case .request(let log): return log.app; case .dsh: return "dsh" }
+    }
+    public var provider: String {
+        switch self {
+        case .request(let log): return log.provider
+        case .dsh(let session): return session.provider.flatMap { $0.isEmpty ? nil : $0 } ?? "未记录供应商"
+        }
+    }
+    public var model: String {
+        switch self { case .request(let log): return log.groupModel; case .dsh(let session): return session.displayModel ?? "未记录模型" }
+    }
 }
 
 public enum UsageReadError: LocalizedError {
     case missing, unavailable, incompatible
     public var errorDescription: String? {
         switch self {
-        case .missing: return "未找到本机 CC Switch 用量记录。额度趋势仍可使用。"
+        case .missing: return "未找到本机 CC Switch 请求记录。"
         case .unavailable: return "暂时无法读取用量数据库，请稍后刷新。"
         case .incompatible: return "此版本的 CC Switch 用量格式暂不支持。"
         }
@@ -123,10 +150,12 @@ public struct UsageFilter: Sendable, Equatable {
 
 public struct UsageTotals: Sendable, Equatable {
     public var requests = 0, successes = 0
+    public var sessions = 0
     public var freshInput = 0.0, output = 0.0, cacheRead = 0.0, cacheWrite = 0.0, cost = 0.0
     /// Sums for speed: exact (output, generation ms) and estimated (output, latency ms).
     public var speedOutput = 0.0, speedMs = 0.0, estimateOutput = 0.0, estimateMs = 0.0
     public init() {}
+    public var recordCount: Int { requests + sessions }
     /// 真实消耗 Tokens.
     public var realTokens: Double { freshInput + output + cacheRead + cacheWrite }
     public var hitRate: Double { let all = freshInput + cacheWrite + cacheRead; return all > 0 ? cacheRead / all : 0 }
@@ -148,6 +177,12 @@ public struct UsageTotals: Sendable, Equatable {
         requests += rollup.requests; successes += rollup.successes
         freshInput += rollup.freshInput; output += rollup.output; cacheRead += rollup.cacheRead; cacheWrite += rollup.cacheWrite; cost += rollup.cost
     }
+    mutating func add(_ session: DshSession) {
+        sessions += 1
+        freshInput += session.uncachedInput; output += session.output
+        cacheRead += session.cacheRead; cacheWrite += session.cacheWrite
+        if session.tokensPerSecond != nil { speedOutput += session.decodeTokens; speedMs += session.decodeMs }
+    }
 }
 
 public struct UsageGroup: Identifiable, Sendable {
@@ -157,140 +192,58 @@ public struct UsageGroup: Identifiable, Sendable {
     public let totals: UsageTotals
 }
 
-public struct UsageBucket: Identifiable, Sendable {
-    public let start: Date
-    public let totals: UsageTotals
-    public var id: Date { start }
-}
-
 /// Everything one range and filter shows, prepared off the main thread.
 public struct UsageStatsReport: Sendable {
-    public let start: Date
-    public let end: Date
-    public let hourly: Bool
     public let totals: UsageTotals
-    public let buckets: [UsageBucket]
-    /// Sorted by request count, as CC Switch's tables are.
+    /// Sorted by the number of requests plus sessions.
     public let providers: [UsageGroup]
     public let models: [UsageGroup]
     /// Detail rows only, newest first.
     public let logs: [UsageLog]
+    /// Requests and DSH sessions, newest activity first; daily rollups have no detail row.
+    public let records: [UsageRecord]
 
     public init(_ data: UsageDataset = UsageDataset(), range: UsageRange = .week, filter: UsageFilter = UsageFilter(),
                 now: Date = Date(), calendar: Calendar = .current) {
         let start = range.start(now: now, calendar: calendar)
-        self.start = start; end = now
         let logs = data.logs.filter { $0.date >= start && $0.date <= now && filter.matches(app: $0.app, provider: $0.provider, model: $0.groupModel) }
+        let sessions = data.dshSessions.filter {
+            let record = UsageRecord.dsh($0)
+            return ($0.turns > 0 || $0.tokens > 0 || $0.running) && record.date >= start && record.date <= now
+                && filter.matches(app: record.app, provider: record.provider, model: record.model)
+        }
         let days = UsageStats.rollupDays(start: start, end: now, calendar: calendar)
         let rollups = days.map { days in data.rollups.filter {
             $0.day >= days.lowerBound && $0.day <= days.upperBound && filter.matches(app: $0.app, provider: $0.provider, model: $0.groupModel)
         } } ?? []
 
         var totals = UsageTotals()
-        logs.forEach { totals.add($0) }; rollups.forEach { totals.add($0) }
+        logs.forEach { totals.add($0) }; rollups.forEach { totals.add($0) }; sessions.forEach { totals.add($0) }
         self.totals = totals
         self.logs = logs.sorted { $0.date == $1.date ? $0.id > $1.id : $0.date > $1.date }
+        records = (logs.map(UsageRecord.request) + sessions.map(UsageRecord.dsh))
+            .sorted { $0.date == $1.date ? $0.id > $1.id : $0.date > $1.date }
 
         func groups(_ key: (String, String) -> String, name: @escaping (String) -> String,
-                    logKey: (UsageLog) -> (String, String), rollupKey: (UsageRollup) -> (String, String)) -> [UsageGroup] {
+                    logKey: (UsageLog) -> (String, String), rollupKey: (UsageRollup) -> (String, String),
+                    sessionKey: (DshSession) -> (String, String)) -> [UsageGroup] {
             var sums: [String: (String, String, UsageTotals)] = [:]
             for log in logs { let (a, b) = logKey(log); sums[key(a, b), default: (a, b, UsageTotals())].2.add(log) }
             for rollup in rollups { let (a, b) = rollupKey(rollup); sums[key(a, b), default: (a, b, UsageTotals())].2.add(rollup) }
+            for session in sessions { let (a, b) = sessionKey(session); sums[key(a, b), default: (a, b, UsageTotals())].2.add(session) }
             return sums.map { UsageGroup(id: $0.key, name: name($0.value.0), app: $0.value.1.isEmpty ? nil : $0.value.1, totals: $0.value.2) }
-                .sorted { $0.totals.requests == $1.totals.requests ? $0.name < $1.name : $0.totals.requests > $1.totals.requests }
+                .sorted { $0.totals.recordCount == $1.totals.recordCount ? $0.name < $1.name : $0.totals.recordCount > $1.totals.recordCount }
         }
         var names: [String: String] = [:]
         logs.forEach { names[$0.providerID] = $0.provider }; rollups.forEach { names[$0.providerID] = names[$0.providerID] ?? $0.provider }
-        providers = groups({ "\($0)|\($1)" }, name: { names[$0] ?? $0 }, logKey: { ($0.providerID, $0.app) }, rollupKey: { ($0.providerID, $0.app) })
-        models = groups({ a, _ in a }, name: { $0 }, logKey: { ($0.groupModel, "") }, rollupKey: { ($0.groupModel, "") })
-
-        // ≤ 24 h: hourly buckets measured from the range start; otherwise local days.
-        hourly = now.timeIntervalSince(start) <= 86_400
-        if hourly {
-            let count = max(1, Int((now.timeIntervalSince(start) / 3600).rounded(.up)))
-            var sums = Array(repeating: UsageTotals(), count: count)
-            for log in logs { sums[min(count - 1, max(0, Int(log.date.timeIntervalSince(start) / 3600)))].add(log) }
-            buckets = sums.enumerated().map { UsageBucket(start: start.addingTimeInterval(Double($0.offset) * 3600), totals: $0.element) }
-        } else {
-            var sums: [String: UsageTotals] = [:]
-            logs.forEach { sums[UsageStats.day($0.date, calendar: calendar), default: UsageTotals()].add($0) }
-            rollups.forEach { sums[$0.day, default: UsageTotals()].add($0) }
-            // "全部" starts at the first recorded day rather than 1970.
-            let first = range == .all ? (sums.keys.min().flatMap { UsageStats.date($0, calendar: calendar) } ?? calendar.startOfDay(for: now)) : calendar.startOfDay(for: start)
-            var result: [UsageBucket] = []
-            var day = first
-            while day <= now {
-                result.append(UsageBucket(start: day, totals: sums[UsageStats.day(day, calendar: calendar)] ?? UsageTotals()))
-                day = calendar.date(byAdding: .day, value: 1, to: day)!
-            }
-            buckets = result
-        }
+        sessions.forEach { names["dsh:\(UsageRecord.dsh($0).provider)"] = UsageRecord.dsh($0).provider }
+        providers = groups({ "\($0)|\($1)" }, name: { names[$0] ?? $0 }, logKey: { ($0.providerID, $0.app) },
+                           rollupKey: { ($0.providerID, $0.app) }, sessionKey: { ("dsh:\(UsageRecord.dsh($0).provider)", "dsh") })
+        models = groups({ a, _ in a }, name: { $0 }, logKey: { ($0.groupModel, "") }, rollupKey: { ($0.groupModel, "") },
+                        sessionKey: { (UsageRecord.dsh($0).model, "") })
     }
 
     public func logs(status: Int?) -> [UsageLog] { status.map { code in logs.filter { $0.status == code } } ?? logs }
-}
-
-public enum UsageHeatmapMetric: String, CaseIterable, Identifiable, Sendable {
-    case tokens = "Tokens", requests = "请求", cost = "成本"
-    public var id: String { rawValue }
-}
-
-/// UsageHeatmap.tsx: Monday-first weeks, 53 columns per span, five levels from the quartiles
-/// of non-zero past days.
-public struct UsageHeatmap: Sendable {
-    public struct Day: Identifiable, Sendable {
-        public let date: Date
-        public let value: Double
-        public let level: Int
-        public let future: Bool
-        public var id: Date { date }
-    }
-    /// Columns of seven days, oldest first.
-    public let weeks: [[Day]]
-
-    public init(_ data: UsageDataset, metric: UsageHeatmapMetric, filter: UsageFilter = UsageFilter(),
-                now: Date = Date(), calendar: Calendar = .current) {
-        var values: [String: Double] = [:]
-        func value(_ totals: UsageTotals) -> Double {
-            switch metric {
-            case .tokens: return totals.realTokens
-            case .requests: return Double(totals.requests)
-            case .cost: return totals.cost
-            }
-        }
-        var sums: [String: UsageTotals] = [:]
-        for log in data.logs where log.date <= now && filter.matches(app: log.app, provider: log.provider, model: log.groupModel) {
-            sums[UsageStats.day(log.date, calendar: calendar), default: UsageTotals()].add(log)
-        }
-        if let days = UsageStats.rollupDays(start: Date(timeIntervalSince1970: 0), end: now, calendar: calendar) {
-            for rollup in data.rollups where rollup.day <= days.upperBound && filter.matches(app: rollup.app, provider: rollup.provider, model: rollup.groupModel) {
-                sums[rollup.day, default: UsageTotals()].add(rollup)
-            }
-        }
-        for (day, totals) in sums { values[day] = value(totals) }
-
-        let today = calendar.startOfDay(for: now)
-        let weekday = (calendar.component(.weekday, from: today) + 5) % 7 // Monday = 0
-        let thisMonday = calendar.date(byAdding: .day, value: -weekday, to: today)!
-        var firstMonday = calendar.date(byAdding: .day, value: -52 * 7, to: thisMonday)!
-        if let first = data.firstDay.flatMap({ UsageStats.date($0, calendar: calendar) }) {
-            while first < firstMonday { firstMonday = calendar.date(byAdding: .day, value: -53 * 7, to: firstMonday)! }
-        }
-        let past = values.filter { $0.key <= UsageStats.day(today, calendar: calendar) }.values.filter { $0 > 0 }.sorted()
-        let thresholds = [0.25, 0.5, 0.75].map { q in past.isEmpty ? 0 : past[min(past.count - 1, Int(Double(past.count) * q))] }
-        var weeks: [[Day]] = []
-        var monday = firstMonday
-        while monday <= thisMonday {
-            weeks.append((0..<7).map { offset in
-                let date = calendar.date(byAdding: .day, value: offset, to: monday)!
-                let amount = values[UsageStats.day(date, calendar: calendar)] ?? 0
-                let level = amount <= 0 ? 0 : amount <= thresholds[0] ? 1 : amount <= thresholds[1] ? 2 : amount <= thresholds[2] ? 3 : 4
-                return Day(date: date, value: amount, level: level, future: date > today)
-            })
-            monday = calendar.date(byAdding: .day, value: 7, to: monday)!
-        }
-        self.weeks = weeks
-    }
 }
 
 public enum UsageStats {
@@ -313,11 +266,6 @@ public enum UsageStats {
     static func day(_ date: Date, calendar: Calendar = .current) -> String {
         let c = calendar.dateComponents([.year, .month, .day], from: date)
         return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
-    }
-    static func date(_ day: String, calendar: Calendar = .current) -> Date? {
-        let parts = day.split(separator: "-").compactMap { Int($0) }
-        guard parts.count == 3 else { return nil }
-        return calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
     }
     /// compute_rollup_date_bounds: only local days the range covers completely.
     static func rollupDays(start: Date, end: Date, calendar: Calendar = .current) -> ClosedRange<String>? {

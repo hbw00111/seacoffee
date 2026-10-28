@@ -78,6 +78,6 @@ public enum ClaudeProtocol {
                          monetary: false, resetsAt: UsageDecoder.date(window["resets_at"]))
         }
         guard !quotas.isEmpty else { throw TelemetryError.unsupported }
-        return UsageSnapshot(quotas: quotas, source: "Claude")
+        return UsageSnapshot(quotas: quotas)
     }
 }
