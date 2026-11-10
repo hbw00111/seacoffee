@@ -458,6 +458,26 @@ final class IslandModel: ObservableObject {
         SeaCoffeePreferences.shared.set(provider.rawValue, forKey: "source")
         refreshCodex()
     }
+    // Preferences that have nothing to validate apply at once instead of waiting for Save.
+    func setReducedMotion(_ on: Bool) {
+        reducedMotion = on; SeaCoffeePreferences.shared.set(on, forKey: "reducedMotion")
+    }
+    func setHoverEnabled(_ on: Bool) {
+        hoverEnabled = on; SeaCoffeePreferences.shared.set(on, forKey: "hoverEnabled")
+    }
+    func setRefreshMinutes(_ minutes: Int) {
+        guard Self.refreshChoices.contains(minutes), minutes != refreshMinutes else { return }
+        refreshMinutes = minutes; SeaCoffeePreferences.shared.set(minutes, forKey: "quotaRefreshMinutes")
+        if refreshTimer != nil { scheduleRefresh() }
+    }
+    /// The most recent successful quota query across all accounts.
+    var lastQuotaUpdate: Date? {
+        [snapshot, clineSnapshot, claudeSnapshot, grokSnapshot].compactMap { $0?.fetchedAt }.max()
+    }
+    /// A quota query is in flight; a Cline browser login is not a refresh.
+    var quotaBusy: Bool {
+        refreshing || claudeAccount.busy || grokAccount.busy || (clineAccount.busy && !clineAccount.loggingIn)
+    }
     func reloadSettings() {
         refreshTask?.cancel(); refreshing = false; snapshot = nil
         reducedMotion = SeaCoffeePreferences.shared.bool(forKey: "reducedMotion")

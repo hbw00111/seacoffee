@@ -391,7 +391,7 @@ struct UsageDashboard: View {
     }
     private func money(_ n: Double) -> String { n.formatted(.currency(code: "USD").precision(.fractionLength(2...4))) }
 }
-private func menuPicker<Value: Hashable>(_ title: String, selection: Binding<Value>, options: [Value], label: @escaping (Value) -> String) -> some View {
+func menuPicker<Value: Hashable>(_ title: String, selection: Binding<Value>, options: [Value], label: @escaping (Value) -> String) -> some View {
     Menu {
         ForEach(Array(options.enumerated()), id: \.offset) { _, option in
             Button {

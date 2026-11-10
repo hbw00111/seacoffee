@@ -107,7 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     private func createMenu() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "sparkle", accessibilityDescription: "Sea Coffee")
+        statusItem.button?.image = NSImage(systemSymbolName: "drop.fill", accessibilityDescription: "Sea Coffee")
         let menu = NSMenu()
         add("展开 Sea Coffee", #selector(expand), to: menu)
         add("固定展开", #selector(togglePin(_:)), to: menu)

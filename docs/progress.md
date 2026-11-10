@@ -1,6 +1,6 @@
 # 项目进度
 
-最后更新：2026-10-28 · 独立版 0.1.0 / Droppy 插件 0.1.1（预览版）
+最后更新：2026-11-11 · 独立版 0.1.0 / Droppy 插件 0.1.1（预览版）
 
 ## 这个应用是干什么的
 
@@ -33,6 +33,8 @@
 安装与使用见 [README](../README.md)，接口与实现细节见 [工作原理](how-it-works.md)。
 
 ## 当前状态
+
+界面与交互优化（11-11）。设置：开关类偏好（悬停展开、减少动态效果、刷新间隔）改为立即生效；底部保存栏只在站点地址、API Key、满格基准、会话目录或 Codex CLI 路径有未保存修改时出现，带“还原”，保存成功提示 3 秒后收起。账号页标题右侧的装饰图标换成“刷新额度”与上次更新时间；账号概览卡片加上状态点、额度条、重置倒计时 / 钱包余额与“未连接 · 点击设置”，偏低和用完的数字变色。任务监测顶部卡片列出正在运行的对话，工具行显示实际读取的 Codex 目录和运行中的数量。侧栏去掉分组标题与重复标语，Claude / Grok / Cline 的说明各压到两句以内，刷新间隔下拉与用量页统一样式。状态岛：偏低或用完的百分比与进度条同色（收起状态同理），重置说明由 9 pt 调到 10 pt，底部“各账号独立刷新”换成“N 分钟前更新”并加了刷新按钮。菜单栏图标由星芒换成液滴。65 项核心检查、账号隔离检查、独立应用与双架构插件构建通过；岛的静态预览和暖白 / 深色设置预览已逐张查看。尚未在真实窗口验证：保存栏的出现与收起、还原、即时生效的开关、岛上刷新按钮的点击，以及有真实额度时的概览卡片；本机 `/Applications` 里的应用未更新。
 
 修复 Codex 误报运行中：Obsidian 的 Claudian 插件会借 Codex 给对话起标题，日志的 `session_meta.originator` 是 `claudian-aux`，只写了 `task_started` 就没有下文，刘海一直显示“1 个对话运行中”（最长 45 分钟后才变成未知）。现在 `originator` 以 `-aux` 结尾的 Codex 会话视为其他工具的后台调用，不计入运行中，也不弹完成提示。新增 1 项检查，62 项检查通过。
 
@@ -98,6 +100,7 @@ Droppy 插件 0.1.1 补齐收起刘海的常驻额度圆环与百分比，空闲
 
 | 日期 | 内容 |
 |---|---|
+| 11-11 | 界面与交互优化：偏好开关立即生效，保存栏仅在有未保存修改时出现并可还原；账号页加“刷新额度”，概览卡片显示状态、额度条与重置倒计时；任务监测列出运行中的对话；状态岛低额度数字变色、底部显示更新时间并可手动刷新；菜单栏图标换成液滴；精简侧栏与说明文字 |
 | 10-28 | Claude 令牌过期时后台不再启动 Claude Code：只保留上次额度并提示，等用户下次用 Claude Code 时由 CLI 自己续期；`/usage` 兜底只在点击“连接 Claude Code”/“重新读取”时运行。对照 claudecodeusage、claude-usage-bar、CodexBar、Claude-Usage-Tracker 等同类工具，最稳妥的做法是只读、过期只提示；Sea Coffee 由此在后台对 Claude Code 登录零影响 |
 | 10-28 | Claude `/usage` 兜底按 CodexBar 加固：先 Esc + `/exit` 让 Claude Code 自己退出，5 秒后才对整棵进程树发 SIGTERM、再 2 秒 SIGKILL；等输入提示（续期阶段）放宽到 90 秒，不再在续期中途强杀；探针前后比对钥匙串项的创建 / 修改日期（不读令牌），没变则提示未续期并 1 小时内不再自动尝试。起因：10-28 09:13 探针跑完后 6 分钟，Claude Code 登录被服务器撤销（原因未能确认），排查时对照 CodexBar 发现上述差距；用假 `claude` 实测正常退出、忽略 `/exit`、无输入提示三种情况均无残留进程；新增 1 项检查 |
 | 10-26 | 修复 Codex 误报运行中：Claudian 等工具借 Codex 起标题的后台调用（`originator` 以 `-aux` 结尾）不再计入运行中、不提示完成；新增 1 项检查 |
@@ -143,7 +146,8 @@ Droppy 插件 0.1.1 补齐收起刘海的常驻额度圆环与百分比，空闲
 - [ ] DSH 提问（`ask_user_question`）真实触发一次，确认问号弹窗与等待状态；本机现有会话没有提问记录
 - [ ] 提问提示覆盖更多来源：Grok、Cline、Pi 目前没有可识别的提问标记；Codex 的阻塞型 `request_user_input`（非 async）等真实记录出现后核对
 - [ ] 用真实提问在运行中的应用里实弹验证一次（Claude Code 触发 `AskUserQuestion`，确认弹窗、等待状态与回答后恢复）
-- [ ] 菜单栏图标由星芒换成液滴，与新应用图标统一
+- [ ] 在真实窗口验证 11-11 的界面改动：保存栏出现 / 收起与还原、即时生效的开关、岛上刷新按钮、有真实额度时的账号概览卡片
+- [x] 菜单栏图标由星芒换成液滴，与新应用图标统一
 - [ ] 本地使用统计：按天、按模型统计 Codex、Claude 的 token 用量，再加费用估算（参考 CodexBar 的本地日志扫描）
 - [ ] 观察 `/usage` 兜底在刷新令牌失效时的表现（CLI 是否会清空登录），以及 Claude Code 改版后屏幕文字是否仍能识别
 - [ ] 定位 Cline 设备码登录失败的原因（需要状态栏报错原文）
@@ -166,7 +170,7 @@ Droppy 插件 0.1.1 补齐收起刘海的常驻额度圆环与百分比，空闲
 ## 开发备忘
 
 - 构建与运行：`bash scripts/build-app.sh && open "dist/Sea Coffee.app"`
-- 检查：`swift run IslandChecks`（62 项）、`bash scripts/check-account-isolation.sh`、`bash scripts/check-credentials.sh`
+- 检查：`swift run IslandChecks`（65 项）、`bash scripts/check-account-isolation.sh`、`bash scripts/check-credentials.sh`
 - 静态预览（不读取凭据）：`dist/Sea\ Coffee.app/Contents/MacOS/SeaCoffee --render-preview dist/preview.png` 导出岛的四种状态（运行中、完成、提问、收起），`--render-settings /tmp/settings.png` 导出设置的四个分区，增加 `--dark` 可导出深色版。改界面前先读 `DESIGN.md`。
 - 目录：`Sources/IslandCore` 放与界面无关、可测试的逻辑（各家协议解析、会话状态机、凭据文件、PI-Desktop 数据库读取）；`Sources/SeaCoffee` 放界面与账号接入。
 - 几个关键决定：

@@ -227,10 +227,15 @@ struct IslandView: View {
             }
             Spacer(minLength: 0)
             GlassDivider(darkSurface: true)
-            HStack {
-                Text(model.demo ? "演示数据" : "各账号独立刷新")
-                    .font(.system(size: 9)).foregroundStyle(NotchPalette.dim)
+            HStack(spacing: 6) {
+                // The model republishes every minute, so the relative time stays current.
+                Text(model.demo ? "演示数据" : model.lastQuotaUpdate.map { UsageFormat.updatedText($0) } ?? "尚未查到额度")
+                    .font(.system(size: 10)).foregroundStyle(NotchPalette.dim)
                 Spacer()
+                Button { model.refresh() } label: { Image(systemName: "arrow.clockwise") }
+                    .buttonStyle(GlassButtonStyle(compact: true, darkSurface: true, loading: model.quotaBusy))
+                    .disabled(model.quotaBusy)
+                    .help("立即刷新额度").accessibilityLabel("刷新额度")
                 Button { model.openSettings?() } label: {
                     Label("管理账号", systemImage: "slider.horizontal.3")
                 }.buttonStyle(GlassButtonStyle(compact: true, darkSurface: true))
@@ -271,7 +276,7 @@ struct IslandView: View {
                             Text(totalOnly ? "总额度" : quota.label == "7 天" ? "每周" : quota.label)
                                 .font(.system(size: 10, weight: .medium)).frame(width: 38, alignment: .leading)
                             Text(totalOnly ? quotaCaption : resetCaption(quota))
-                                .font(.system(size: 9)).foregroundStyle(NotchPalette.dim).lineLimit(1)
+                                .font(.system(size: 10)).foregroundStyle(NotchPalette.dim).lineLimit(1)
                                 .help(totalOnly ? quotaCaption : resetCaption(quota))
                             Spacer(minLength: 0)
                             GeometryReader { proxy in
@@ -283,6 +288,7 @@ struct IslandView: View {
                             }.frame(width: 56, height: 4).accessibilityHidden(true)
                             Text("\(quota.percent)%").font(.system(size: 11, weight: .semibold))
                                 .monospacedDigit().frame(width: 33, alignment: .trailing)
+                                .foregroundStyle(percentInk(quota.fraction).opacity(stale ? 0.6 : 1))
                         }.frame(height: 20)
                         .accessibilityElement(children: .combine)
                     }
@@ -309,9 +315,16 @@ struct IslandView: View {
             .frame(width: 10, height: 10)
             Text(quota.map { "\($0.percent)%" } ?? "—")
                 .font(.system(size: 9, weight: .medium, design: .rounded)).monospacedDigit()
-                .foregroundStyle(NotchPalette.text)
+                .foregroundStyle(percentInk(quota?.fraction))
         }
         .accessibilityLabel("\(title)，剩余\(quota.map { "\($0.percent)%" } ?? "未知")")
+    }
+    /// Healthy numbers stay neutral; a low or used-up quota takes its warning colour so it stands out.
+    private func percentInk(_ fraction: Double?) -> Color {
+        switch QuotaLevel(fraction: fraction) {
+        case .warning, .low: return QuotaRing.tint(for: fraction, darkSurface: true)
+        default: return NotchPalette.text
+        }
     }
     private var amount: String {
         guard let usage = model.displayedSnapshot else { return "等待连接" }

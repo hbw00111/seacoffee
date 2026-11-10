@@ -14,7 +14,7 @@ Native SwiftUI + AppKit. No Electron, no third-party runtime dependencies.
 
 ## Features
 
-- **Unified interface**: warm surfaces and clay accents inspired by open-claude-ui, with light, dark, and system themes. Account shortcuts, per-tool monitoring controls, consistent usage filters, and a fixed save bar keep settings easy to navigate. The notch stays dark.
+- **Unified interface**: warm surfaces and clay accents inspired by open-claude-ui, with light, dark, and system themes. Account cards show each service's remaining quota, reset countdown, and connection state, and jump to that account. Task monitoring lists the conversations that are running and has a switch per tool. Switches take effect at once; the save bar appears only after you edit a field such as the site URL or API key. The notch stays dark, low quotas change colour, and the expanded island has a refresh button.
 
 - **Usage dashboard**: combines CC Switch requests and DSH sessions in one chronological record list, with shared time ranges (today, last 24 hours, last 7 / 14 / 30 days, or all time) and app, provider, and model filters. It keeps known cost, separate request and session counts, tokens, cache hit rate, and detail / provider / model tables; usage trend charts and the heatmap are removed. DSH rows are labelled as sessions, with project, turns, steps, and first-token latency in their details. Their tokens contribute to the combined totals; unavailable costs show “—”. Time filters select whole-session counters by the last prompt time. CC Switch retains about 30 days of request details and older daily rollups; its price table supplies costs, unpriced requests stay out of known cost, and the result is not a bill. Quota and balance trends retain the latest successful snapshot every 15 minutes for about 30 days.
 
@@ -46,7 +46,7 @@ bash scripts/build-app.sh
 open "dist/Sea Coffee.app"
 ```
 
-The app is built to `dist/Sea Coffee.app`; drag it to Applications if you like. It lives in the menu bar with no Dock icon. The sparkle icon in the menu bar opens Settings, previews the animations (including a sample question), and quits.
+The app is built to `dist/Sea Coffee.app`; drag it to Applications if you like. It lives in the menu bar with no Dock icon. The droplet icon in the menu bar opens Settings, previews the animations (including a sample question), and quits.
 
 > The app is not notarized by Apple. If macOS says it cannot verify the developer, right-click the app in Finder and choose Open.
 
