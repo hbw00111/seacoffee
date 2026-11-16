@@ -36,4 +36,4 @@ Shelf 中提供额度/任务两个页面，未知或未连接状态不伪装成�
 
 启用后，空闲也会常驻各账号的首个额度圆环与百分比。刘海两侧各最多两行，左侧保留任务指示；未知显示 —，过期值显示时钟并减淡。更详细的额度周期、余额及连接错误见 Shelf。音乐等宿主内置活动仍可优先占位。
 
-额度每 60 秒轮询，Claude / Grok 的查询最小间隔为 120 秒，任务完成会额外触发刷新。harness 可设置 `SEACOFFEE_PREVIEW_IDLE=1` 检查无任务演示；暂存包支持 `swift run SeaCoffeeDropletChecks` 验证空闲、数据更新和停用生命周期。
+额度每 60 秒轮询，Claude / Antigravity 的查询最小间隔为 120 秒，任务完成会额外触发刷新。harness 可设置 `SEACOFFEE_PREVIEW_IDLE=1` 检查无任务演示；暂存包支持 `swift run SeaCoffeeDropletChecks` 验证空闲、数据更新和停用生命周期。

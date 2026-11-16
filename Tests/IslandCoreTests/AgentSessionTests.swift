@@ -195,23 +195,6 @@ final class AgentSessionTests {
         expectEqual(codexReceived?.asked.count, 0)
     }
 
-    func grokTurns() {
-        var s = SessionState(id: "g", agent: .grok)
-        s.consumeGrok(json(["type": "turn_started", "ts": "2026-09-25T12:00:00.000Z", "turn_number": 0, "model_id": "grok-4.6"]))
-        expectEqual(s.modelName, "grok-4.6")
-        expectEqual(s.state, .running)
-        s.consumeGrok(json(["type": "tool_started", "ts": "2026-09-25T12:00:03.000Z"]))
-        expectEqual(s.updatedAt, UsageDecoder.date("2026-09-25T12:00:03.000Z"))
-        s.consumeGrok(json(["type": "turn_ended", "ts": "2026-09-25T12:01:00.000Z", "outcome": "completed"]))
-        expectEqual(s.state, .completed)
-        s.consumeGrok(json(["type": "turn_started", "ts": "2026-09-25T12:02:00.000Z"]))
-        s.consumeGrok(json(["type": "turn_ended", "ts": "2026-09-25T12:02:30.000Z", "outcome": "cancelled", "cancellation_category": "mid_turn_abort"]))
-        expectEqual(s.state, .interrupted)
-        s.consumeGrok(json(["type": "turn_started", "ts": "2026-09-25T12:03:00.000Z"]))
-        s.consumeGrok(json(["type": "turn_ended", "ts": "2026-09-25T12:03:30.000Z", "outcome": "error"]))
-        expectEqual(s.state, .failed)
-    }
-
     func piTurns() {
         func pi(_ time: String, _ message: [String: Any]) -> Data {
             json(["type": "message", "id": UUID().uuidString, "timestamp": time, "message": message])
@@ -273,17 +256,13 @@ final class AgentSessionTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let fm = FileManager.default
         let now = ISO8601DateFormatter().string(from: Date().addingTimeInterval(1))
-        let claudeRoot = root.appendingPathComponent("claude"), grokRoot = root.appendingPathComponent("grok")
+        let claudeRoot = root.appendingPathComponent("claude")
         let clineRoot = root.appendingPathComponent("cline")
         let project = claudeRoot.appendingPathComponent("-Users-example-web")
         try fm.createDirectory(at: project.appendingPathComponent("s1/subagents"), withIntermediateDirectories: true)
         try (claude("user", at: now, ["content": "hi"]) + Data([10])).write(to: project.appendingPathComponent("s1.jsonl"))
         // A subagent transcript must not count as a separate conversation.
         try (claude("user", at: now, ["content": "sub"]) + Data([10])).write(to: project.appendingPathComponent("s1/subagents/a.jsonl"))
-        let grokSession = grokRoot.appendingPathComponent("%2FUsers%2Fexample%2Fapi/0001")
-        try fm.createDirectory(at: grokSession, withIntermediateDirectories: true)
-        try (json(["type": "turn_started", "ts": now]) + Data([10])).write(to: grokSession.appendingPathComponent("events.jsonl"))
-        try Data("{}".utf8).write(to: grokSession.appendingPathComponent("summary.json"))
         let clineSession = clineRoot.appendingPathComponent("session_1")
         try fm.createDirectory(at: clineSession, withIntermediateDirectories: true)
         try json(["status": "running", "cwd": "/Users/example/cli"]).write(to: clineSession.appendingPathComponent("session_1.json"))
@@ -291,16 +270,15 @@ final class AgentSessionTests {
 
         var received: MonitorSnapshot?
         let monitor = SessionMonitor(sources: [SessionSource(agent: .claude, path: claudeRoot.path),
-                                               SessionSource(agent: .grok, path: grokRoot.path),
                                                SessionSource(agent: .cline, path: clineRoot.path),
                                                SessionSource(agent: .codex, path: root.appendingPathComponent("missing").path)]) { received = $0 }
         monitor.poll()
         let sessions = received?.sessions ?? []
-        expectEqual(sessions.count, 3)
-        expectEqual(Set(sessions.map(\.agent)), [.claude, .grok, .cline])
+        expectEqual(sessions.count, 2)
+        expectEqual(Set(sessions.map(\.agent)), [.claude, .cline])
         expectEqual(Set(sessions.map(\.state)), [.running])
-        // Claude takes the project from each line's cwd; Grok decodes its folder name.
-        expectEqual(Set(sessions.map(\.project)), ["seacoffee", "api", "cli"])
+        // Claude takes the project from each line's cwd.
+        expectEqual(Set(sessions.map(\.project)), ["seacoffee", "cli"])
 
         try json(["status": "idle", "cwd": "/Users/example/cli"]).write(to: clineSession.appendingPathComponent("session_1.json"))
         let later = Date().addingTimeInterval(5)

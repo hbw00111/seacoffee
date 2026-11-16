@@ -14,7 +14,7 @@ enum Provider: String, CaseIterable, Identifiable {
     }
 }
 
-/// One subscription shown in the island: Cline Pass, and Claude / Grok once enabled.
+/// One subscription shown in the island: Cline Pass, and Claude / Antigravity once enabled.
 struct PlanLane: Identifiable {
     let id: String
     let title: String
@@ -69,8 +69,8 @@ final class IslandModel: ObservableObject {
     @Published var clineMessage = "请连接 Cline 账号"
     @Published var claudeSnapshot: UsageSnapshot?
     @Published var claudeMessage = "请在设置中连接 Claude Code"
-    @Published var grokSnapshot: UsageSnapshot?
-    @Published var grokMessage = "请在设置中连接 Grok"
+    @Published var antigravitySnapshot: UsageSnapshot?
+    @Published var antigravityMessage = "请在设置中连接 Antigravity"
     @Published var serviceMessage = "在设置中添加 API Key，即可查看真实余额"
     @Published var monitorMessage: String?
     @Published var sessions: [SessionState] = []
@@ -88,7 +88,7 @@ final class IslandModel: ObservableObject {
     /// Agents whose local session files are followed; all by default.
     @Published private(set) var watchedAgents: Set<Agent>
     /// Agents that did not exist when `watchedAgents` was first saved.
-    private static let addedAgents: [Agent] = [.dsh]
+    private static let addedAgents: [(version: Int, agent: Agent)] = [(1, .dsh), (2, .antigravity)]
     var openSettings: (() -> Void)?
     var geometryChanged: (() -> Void)?
     /// The host owns notification presentation when embedded as a Droppy extension.
@@ -96,7 +96,7 @@ final class IslandModel: ObservableObject {
     let account = OfficialAccount()
     let clineAccount = ClineAccount()
     let claudeAccount = ClaudeAccount()
-    let grokAccount = GrokAccount()
+    let antigravityAccount = AntigravityAccount()
     let launchAtLogin = LaunchAtLogin()
     private var monitor: SessionMonitor?
     private var refreshTimer: Timer?
@@ -181,11 +181,11 @@ final class IslandModel: ObservableObject {
     var showsClaude: Bool { demo || claudeAccount.enabled || claudeSnapshot != nil }
     // Claude polls every two minutes, so allow one missed refresh before dimming.
     var claudeIsStale: Bool { quotaIsStale(claudeSnapshot, floor: 300) }
-    var displayedGrokSnapshot: UsageSnapshot? {
-        demo ? UsageSnapshot(quotas: [Quota(id: "grok-credits", label: "每周", remaining: 90, limit: 100, monetary: false, resetsAt: Date().addingTimeInterval(172800))]) : grokSnapshot
+    var displayedAntigravitySnapshot: UsageSnapshot? {
+        demo ? UsageSnapshot(quotas: [Quota(id: "antigravity-Gemini 4 Hydrogen", label: "Gemini 4 Hydrogen", remaining: 90, limit: 100, monetary: false, resetsAt: Date().addingTimeInterval(14400))]) : antigravitySnapshot
     }
-    var showsGrok: Bool { demo || grokAccount.enabled || grokSnapshot != nil }
-    var grokIsStale: Bool { quotaIsStale(grokSnapshot, floor: 300) }
+    var showsAntigravity: Bool { demo || antigravityAccount.enabled || antigravitySnapshot != nil }
+    var antigravityIsStale: Bool { quotaIsStale(antigravitySnapshot, floor: 300) }
     var planLanes: [PlanLane] {
         var lanes = [PlanLane(id: "CL", title: "Cline Pass", snapshot: displayedClineSnapshot, stale: clineIsStale, message: clineMessage,
                               loading: clineAccount.busy && clineSnapshot == nil, failed: clineAccount.lastSucceeded == false)]
@@ -193,9 +193,9 @@ final class IslandModel: ObservableObject {
             lanes.append(PlanLane(id: "CC", title: "Claude", snapshot: displayedClaudeSnapshot, stale: claudeIsStale, message: claudeMessage,
                                   loading: claudeAccount.busy && claudeSnapshot == nil, failed: claudeAccount.lastSucceeded == false))
         }
-        if showsGrok {
-            lanes.append(PlanLane(id: "GK", title: "Grok", snapshot: displayedGrokSnapshot, stale: grokIsStale, message: grokMessage,
-                                  loading: grokAccount.busy && grokSnapshot == nil, failed: grokAccount.lastSucceeded == false))
+        if showsAntigravity {
+            lanes.append(PlanLane(id: "AG", title: "Antigravity", snapshot: displayedAntigravitySnapshot, stale: antigravityIsStale, message: antigravityMessage,
+                                  loading: antigravityAccount.busy && antigravitySnapshot == nil, failed: antigravityAccount.lastSucceeded == false))
         }
         return lanes
     }
@@ -271,9 +271,10 @@ final class IslandModel: ObservableObject {
         let storedAgents = defaults.stringArray(forKey: "watchedAgents")
         watchedAgents = storedAgents.map { Set($0.compactMap(Agent.init(rawValue:))) } ?? Set(Agent.allCases)
         // A saved list predates agents added later; turn those on once instead of leaving them off.
-        if defaults.integer(forKey: "watchedAgentsVersion") < 1 {
-            if storedAgents != nil { watchedAgents.formUnion(Self.addedAgents) }
-            defaults.set(1, forKey: "watchedAgentsVersion")
+        let agentsVersion = defaults.integer(forKey: "watchedAgentsVersion")
+        if agentsVersion < 2 {
+            if storedAgents != nil { watchedAgents.formUnion(Self.addedAgents.filter { $0.version > agentsVersion }.map(\.agent)) }
+            defaults.set(2, forKey: "watchedAgentsVersion")
         }
         account.binaryPath = defaults.string(forKey: "codexBinary") ?? ""
         clineAccount.onStatus = { [weak self] text in
@@ -288,7 +289,7 @@ final class IslandModel: ObservableObject {
             self?.clineSnapshot = nil
         }
         // Account busy flags drive the island's loading placeholders.
-        for publisher in [clineAccount.objectWillChange, claudeAccount.objectWillChange, grokAccount.objectWillChange] {
+        for publisher in [clineAccount.objectWillChange, claudeAccount.objectWillChange, antigravityAccount.objectWillChange] {
             accountObservers.append(publisher.sink { [weak self] _ in self?.objectWillChange.send() })
         }
         claudeAccount.onStatus = { [weak self] text in
@@ -302,16 +303,16 @@ final class IslandModel: ObservableObject {
         claudeAccount.onDisconnect = { [weak self] in
             self?.claudeSnapshot = nil
         }
-        grokAccount.onStatus = { [weak self] text in
-            self?.grokMessage = text
+        antigravityAccount.onStatus = { [weak self] text in
+            self?.antigravityMessage = text
         }
-        grokAccount.onUsage = { [weak self] usage in
+        antigravityAccount.onUsage = { [weak self] usage in
             guard let self else { return }
-            withAnimation(self.animation) { self.grokSnapshot = usage }
-            self.recordUsage(usage, provider: "Grok")
+            withAnimation(self.animation) { self.antigravitySnapshot = usage }
+            self.recordUsage(usage, provider: "Antigravity")
         }
-        grokAccount.onDisconnect = { [weak self] in
-            self?.grokSnapshot = nil
+        antigravityAccount.onDisconnect = { [weak self] in
+            self?.antigravitySnapshot = nil
         }
         account.onStatus = { [weak self] text in
             guard self?.source == .official else { return }
@@ -352,7 +353,7 @@ final class IslandModel: ObservableObject {
         authorizationTask?.cancel()
         generation = UUID() // Ignore monitor deliveries already queued on the main actor.
         noticeQueue.removeAll()
-        monitor?.stop(); refreshTimer?.invalidate(); account.stop(); clineAccount.stop(); claudeAccount.stop(); grokAccount.stop()
+        monitor?.stop(); refreshTimer?.invalidate(); account.stop(); clineAccount.stop(); claudeAccount.stop(); antigravityAccount.stop()
         collapseTask?.cancel(); noticeTask?.cancel(); demoTask?.cancel(); refreshTask?.cancel()
         refreshTimer = nil; monitor = nil
         notice = nil; completion = nil; refreshing = false; demo = false
@@ -361,7 +362,7 @@ final class IslandModel: ObservableObject {
     func updateMonitoredSessions(_ sessions: [SessionState], message: String?, now: Date = Date()) {
         let clock = (minute: Int(now.timeIntervalSince1970 / 60), stale: [
             quotaIsStale(snapshot, floor: 180, now: now), quotaIsStale(clineSnapshot, floor: 180, now: now),
-            quotaIsStale(claudeSnapshot, floor: 300, now: now), quotaIsStale(grokSnapshot, floor: 300, now: now)
+            quotaIsStale(claudeSnapshot, floor: 300, now: now), quotaIsStale(antigravitySnapshot, floor: 300, now: now)
         ])
         let clockChanged = monitorClock.map { $0.minute != clock.minute || $0.stale != clock.stale } ?? false
         monitorClock = clock
@@ -390,7 +391,7 @@ final class IslandModel: ObservableObject {
         // Independent lanes: an API request or Keychain prompt must not block the other services.
         clineAccount.refresh()
         claudeAccount.refresh()
-        grokAccount.refresh()
+        antigravityAccount.refresh()
         refreshCodex()
     }
     private func refreshCodex() {
@@ -472,11 +473,11 @@ final class IslandModel: ObservableObject {
     }
     /// The most recent successful quota query across all accounts.
     var lastQuotaUpdate: Date? {
-        [snapshot, clineSnapshot, claudeSnapshot, grokSnapshot].compactMap { $0?.fetchedAt }.max()
+        [snapshot, clineSnapshot, claudeSnapshot, antigravitySnapshot].compactMap { $0?.fetchedAt }.max()
     }
     /// A quota query is in flight; a Cline browser login is not a refresh.
     var quotaBusy: Bool {
-        refreshing || claudeAccount.busy || grokAccount.busy || (clineAccount.busy && !clineAccount.loggingIn)
+        refreshing || claudeAccount.busy || antigravityAccount.busy || (clineAccount.busy && !clineAccount.loggingIn)
     }
     func reloadSettings() {
         refreshTask?.cancel(); refreshing = false; snapshot = nil
@@ -592,8 +593,9 @@ final class IslandModel: ObservableObject {
         case .codex: candidates = ["com.openai.codex", "com.openai.Codex", "com.bigpizzav3.codexplusplus", "com.codexhost.app"]
         case .claude: candidates = ["com.anthropic.claudefordesktop"]
         case .pi: candidates = ["net.aiuo.pi-desktop"]
-        // Grok, Cline and DSH run in a terminal; there is no app to bring forward.
-        case .grok, .cline, .dsh: candidates = []
+        case .antigravity: candidates = ["com.google.antigravity"]
+        // Cline and DSH run in a terminal; there is no app to bring forward.
+        case .cline, .dsh: candidates = []
         }
         return candidates.lazy.compactMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }.first
     }

@@ -122,7 +122,7 @@ extension SeaCoffeeDroplet: ShelfWidgetProviding {
         [ShelfWidgetDescriptor(id: "dashboard", title: "Sea Coffee", systemImage: "cup.and.saucer.fill",
             layoutTraits: ShelfWidgetLayoutTraits(preferredSoloWidth: 420, preferredPairedWidth: 240,
                                                    contentHeight: .fixed(340)),
-            searchKeywords: ["额度", "余额", "任务", "Codex", "Claude", "Grok", "Cline", "Pi"])]
+            searchKeywords: ["额度", "余额", "任务", "Codex", "Claude", "Antigravity", "agy", "Cline", "Pi"])]
     }
     public func makeWidgetView(_ id: ShelfWidgetID, context: ShelfWidgetContext) -> AnyView {
         AnyView(SeaCoffeeWidget(droplet: self, model: model, context: context))
@@ -141,7 +141,7 @@ extension SeaCoffeeDroplet: SettingsPaneProviding {
     public func makeSettingsPane(context: SettingsPaneContext) -> AnyView {
         AnyView(DropletSettingsPane {
             Section("账号与任务") {
-                Text("沿用 Sea Coffee 的账号配置，显示 Codex、Claude、Grok、Cline、Pi 的任务和各渠道额度。")
+                Text("沿用 Sea Coffee 的账号配置，显示 Codex、Claude、Antigravity、Cline、Pi 的任务和各渠道额度。")
                     .foregroundStyle(.secondary)
                 Button("账号与监听设置…") { [weak self] in self?.showSettings() }
                     .disabled(isPreview)

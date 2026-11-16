@@ -161,8 +161,8 @@ struct SettingsView: View {
                                 connected: model.clineAccount.connected || model.clineAccount.hasAPIKey, loading: model.clineAccount.busy, jump: jump)
                 accountShortcut("claude", title: "Claude", style: .claude, usage: model.claudeSnapshot,
                                 connected: model.claudeAccount.enabled, loading: model.claudeAccount.busy, jump: jump)
-                accountShortcut("grok", title: "Grok", style: .grok, usage: model.grokSnapshot,
-                                connected: model.grokAccount.enabled, loading: model.grokAccount.busy, jump: jump)
+                accountShortcut("antigravity", title: "Antigravity", style: .antigravity, usage: model.antigravitySnapshot,
+                                connected: model.antigravityAccount.enabled, loading: model.antigravityAccount.busy, jump: jump)
             }
         }
     }
@@ -170,7 +170,7 @@ struct SettingsView: View {
     private func accountShortcut(_ id: String, title: String, style: ServiceStyle, usage: UsageSnapshot?,
                                  connected: Bool, loading: Bool, jump: @escaping (String) -> Void) -> some View {
         let quota = usage?.quotas.first
-        let stale = usage.map { Date().timeIntervalSince($0.fetchedAt) > model.staleAfter(id == "claude" || id == "grok" ? 300 : 180) } ?? false
+        let stale = usage.map { Date().timeIntervalSince($0.fetchedAt) > model.staleAfter(id == "claude" || id == "antigravity" ? 300 : 180) } ?? false
         let level = QuotaLevel(fraction: quota?.fraction)
         // What the card says under the number: where the number comes from, or why there is none.
         let caption: String = {
@@ -226,12 +226,12 @@ struct SettingsView: View {
                 statusRow { Text(model.claudeMessage).multilineTextAlignment(.trailing).textSelection(.enabled) }
                 SettingsUsageDetails(usage: model.claudeSnapshot, loading: model.claudeAccount.busy, staleAfter: model.staleAfter(300))
             }.id("claude")
-            GlassSection(title: "Grok", subtitle: "使用本机 Grok CLI 登录", icon: ServiceStyle.grok.icon, tint: ServiceStyle.grok.tint) {
-                GrokAccountSettings(account: model.grokAccount)
+            GlassSection(title: "Antigravity", subtitle: "使用本机 Antigravity（agy）登录", icon: ServiceStyle.antigravity.icon, tint: ServiceStyle.antigravity.tint) {
+                AntigravityAccountSettings(account: model.antigravityAccount)
                 GlassDivider()
-                statusRow { Text(model.grokMessage).multilineTextAlignment(.trailing).textSelection(.enabled) }
-                SettingsUsageDetails(usage: model.grokSnapshot, loading: model.grokAccount.busy, staleAfter: model.staleAfter(300))
-            }.id("grok")
+                statusRow { Text(model.antigravityMessage).multilineTextAlignment(.trailing).textSelection(.enabled) }
+                SettingsUsageDetails(usage: model.antigravitySnapshot, loading: model.antigravityAccount.busy, staleAfter: model.staleAfter(300))
+            }.id("antigravity")
             GlassSection(title: "凭据与隐私", subtitle: "登录信息仅保留在本机", symbol: "key", tint: Palette.dim) {
                 caption("API Key 与 Cline 登录保存在仅当前用户可读的本地文件。更新应用无需重新连接；旧版本凭据可在这里授权导入。")
                 Button("授权读取已存凭据") { model.authorizeCredentials() }
@@ -317,7 +317,7 @@ struct SettingsView: View {
             let home = NSHomeDirectory()
             return path.isEmpty ? "~/.codex/sessions" : path.hasPrefix(home) ? "~" + path.dropFirst(home.count) : path
         case .claude: return "~/.claude/projects"
-        case .grok: return "~/.grok/sessions"
+        case .antigravity: return "~/.gemini/antigravity-cli · Antigravity 应用"
         case .cline: return "~/.cline/data/sessions"
         case .pi: return "~/.pi/agent/sessions · PI-Desktop"
         case .dsh: return "~/.dsh/storages/session_projcache/sessions"
@@ -361,7 +361,7 @@ struct SettingsView: View {
                             .frame(width: 104)
                     }
                 }
-                caption("与 CC Switch 一致默认 5 分钟；任务完成时也会刷新。Claude 与 Grok 两次查询至少间隔 2 分钟。")
+                caption("与 CC Switch 一致默认 5 分钟；任务完成时也会刷新。Claude 与 Antigravity 两次查询至少间隔 2 分钟。")
                 #if !SEACOFFEE_DROPPY
                 GlassDivider()
                 SettingRow("开机自启") { LaunchAtLoginToggle(launch: model.launchAtLogin) }
@@ -750,14 +750,14 @@ private struct ClaudeAccountSettings: View {
     }
 }
 
-private struct GrokAccountSettings: View {
-    @ObservedObject var account: GrokAccount
+private struct AntigravityAccountSettings: View {
+    @ObservedObject var account: AntigravityAccount
     @State private var pending = false
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("显示 SuperGrok 本期额度").font(.system(size: 12.5, weight: .medium))
+                    Text("显示 Antigravity 各模型的剩余额度").font(.system(size: 12.5, weight: .medium))
                     if let detail = [account.plan, account.email].compactMap({ $0 }).joined(separator: " · ").nilIfEmpty {
                         Text(detail).font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.dim).textSelection(.enabled)
                     }
@@ -771,10 +771,11 @@ private struct GrokAccountSettings: View {
 
                 }
             }
-            Text("先运行 grok login，再连接到这里。登录过期时由 Grok CLI 自己续期，不发起对话，也不消耗额度。")
+            Text("先在 agy 或 Antigravity 应用中登录，再连接到这里。登录只读不写；令牌过期时保留上次额度，下次使用 Antigravity 时自动恢复。")
                 .font(.system(size: 11)).foregroundStyle(Palette.dim).fixedSize(horizontal: false, vertical: true)
+                .help("令牌仅保存在内存，读取自钥匙串中 Antigravity 自己的登录项；后台从不启动 Antigravity。同一模型的不同推理强度合并为一行。")
             HStack(spacing: 8) {
-                Button(account.enabled ? "立即刷新" : "连接 Grok") { pending = true; account.connect() }
+                Button(account.enabled ? "立即刷新" : "连接 Antigravity") { pending = true; account.connect() }
                     .buttonStyle(GlassButtonStyle(prominent: account.enabled ? nil : Palette.accentFill,
                                                   loading: pending && account.busy, succeeded: account.lastSucceeded))
                     .disabled(account.busy)

@@ -235,7 +235,7 @@ struct PreviewCanvas: View {
                     }
                 }.padding(.top, 24)
                 Spacer(minLength: 0)
-                Text("图中为演示数据 · 支持 Sub2API、Codex 官方、Cline Pass、Claude 与 Grok")
+                Text("图中为演示数据 · 支持 Sub2API、Codex 官方、Cline Pass、Claude 与 Antigravity")
                     .font(.system(size: 10)).foregroundStyle(.white.opacity(0.3)).padding(.bottom, 30)
             }
         }.frame(width: 1040, height: 800).foregroundStyle(.white).preferredColorScheme(.dark)

@@ -18,7 +18,7 @@ func expectNoThrow<T>(_ expression: @autoclosure () throws -> T, file: StaticStr
 @main
 enum Checks {
     static func main() async {
-        let cline = ClineTests(); let claude = ClaudeTests(); let grok = GrokTests(); let credentials = CredentialFileTests(); let agents = AgentSessionTests(); let piDesktop = PiDesktopTests(); let topUp = WalletTopUpTests(); let dsh = DshTests()
+        let cline = ClineTests(); let claude = ClaudeTests(); let antigravity = AntigravityTests(); let credentials = CredentialFileTests(); let agents = AgentSessionTests(); let piDesktop = PiDesktopTests(); let topUp = WalletTopUpTests(); let dsh = DshTests()
         let telemetry = TelemetryTests(); let monitor = SessionMonitorTests()
         let checks: [(String, () async throws -> Void)] = [
             ("usage cache normalization", UsageAnalyticsTests().normalization),
@@ -64,10 +64,9 @@ enum Checks {
             ("Claude HTTP status and rate limits", claude.httpStatus),
             ("Claude /usage screen fallback", claude.usageScreen),
             ("Claude Keychain renewal stamp", claude.keychainStamp),
-            ("Grok credit windows", grok.windows),
-            ("Grok missing and invalid usage", grok.invalidUsage),
-            ("Grok CLI credential parsing", grok.credentials),
-            ("Grok plan and HTTP status", grok.planAndStatus),
+            ("Antigravity keychain login parsing", antigravity.credentials),
+            ("Antigravity per-model quotas", antigravity.modelQuotas),
+            ("Antigravity project, plan and HTTP status", antigravity.accountAndStatus),
             ("credential preview masks secrets and short keys", credentials.maskedPreview),
             ("credential file round trip and permissions", credentials.roundTripAndPermissions),
             ("credential file rejects links and tightens modes", credentials.unsafeFiles),
@@ -95,7 +94,9 @@ enum Checks {
             ("Claude Code questions: waiting, answered, interrupted", agents.claudeQuestions),
             ("Codex questions: one-off notice", agents.codexQuestions),
             ("monitor reports fresh questions once", agents.monitorReportsQuestions),
-            ("Grok turn outcomes", agents.grokTurns),
+            ("Antigravity conversation databases: merge, nesting, privacy columns", antigravity.conversations),
+            ("Antigravity run states", antigravity.runStates),
+            ("Antigravity database: completion notices", antigravity.monitorReportsCompletion),
             ("Cline session statuses", agents.clineStatuses),
             ("Pi turns, models and Cline Pass channel", agents.piTurns),
             ("PI-Desktop database: latest turn per session", piDesktop.latestTurnPerSession),
@@ -103,7 +104,7 @@ enum Checks {
             ("DSH projection cache, tokens and speed", dsh.cacheAndSessionState),
             ("DSH snapshot monitoring and completion", dsh.storeAndMonitor),
             ("rewritten old cache does not announce a finish", dsh.rewrittenOldCacheDoesNotNotify),
-            ("monitor follows Claude, Grok and Cline together", agents.monitorsAllAgents),
+            ("monitor follows Claude and Cline together", agents.monitorsAllAgents),
             ("Claude background subagents keep a conversation running", agents.backgroundSubagents)
         ]
         for (name, check) in checks {

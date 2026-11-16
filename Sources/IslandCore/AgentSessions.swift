@@ -18,12 +18,12 @@ extension SessionState {
 }
 
 public enum Agent: String, CaseIterable, Sendable {
-    case codex, claude, grok, cline, pi, dsh
+    case codex, claude, antigravity, cline, pi, dsh
     public var name: String {
         switch self {
         case .codex: return "Codex"
         case .claude: return "Claude Code"
-        case .grok: return "Grok"
+        case .antigravity: return "Antigravity"
         case .cline: return "Cline"
         case .pi: return "Pi"
         case .dsh: return "DSH"
@@ -107,27 +107,6 @@ extension SessionState {
                 ask(callID, at: time, blocking: true)
             }
         default: break
-        }
-    }
-
-    /// Grok CLI: `~/.grok/sessions/<encoded cwd>/<session>/events.jsonl`.
-    public mutating func consumeGrok(_ line: Data) {
-        guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
-              let kind = object["type"] as? String,
-              let time = UsageDecoder.date(object["ts"]), time >= updatedAt else { return }
-        let key = "\(kind):\(time.timeIntervalSince1970)"
-        switch kind {
-        case "turn_started":
-            if let name = object["model_id"] as? String, !name.isEmpty { model = name }
-            transition(.running, key, at: time)
-        case "turn_ended":
-            switch object["outcome"] as? String {
-            case "completed": transition(.completed, key, at: time)
-            case "cancelled": transition(.interrupted, key, at: time)
-            case "error", "failed": transition(.failed, key, at: time)
-            default: transition(.unknown, key, at: time)
-            }
-        default: activity(at: time)
         }
     }
 

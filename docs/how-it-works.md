@@ -26,7 +26,7 @@ DSH Tokens 计入总量、缓存命中率与供应商 / 模型汇总，会话数
 
 ## 额度来源
 
-各来源并行、独立刷新：一方登录、退出或查询失败不会清空另一方的数据。查询失败时保留旧值并提示，没有数据时展开面板写“额度没查到 · 原因”。刷新间隔在“外观与交互”中设置（1 / 2 / 5 / 10 / 30 分钟，默认 5 分钟，与 CC Switch 一致），任务完成时也会刷新；Claude / Grok 两次查询至少间隔 2 分钟。连续错过两次刷新（间隔 × 2 + 1 分钟，且不少于 Codex / Cline 3 分钟、Claude / Grok 5 分钟）后额度指示减淡，展开面板标注“待更新”。
+各来源并行、独立刷新：一方登录、退出或查询失败不会清空另一方的数据。查询失败时保留旧值并提示，没有数据时展开面板写“额度没查到 · 原因”。刷新间隔在“外观与交互”中设置（1 / 2 / 5 / 10 / 30 分钟，默认 5 分钟，与 CC Switch 一致），任务完成时也会刷新；Claude / Antigravity 两次查询至少间隔 2 分钟。连续错过两次刷新（间隔 × 2 + 1 分钟，且不少于 Codex / Cline 3 分钟、Claude / Antigravity 5 分钟）后额度指示减淡，展开面板标注“待更新”。
 
 ### Codex API（Sub2API）
 
@@ -69,12 +69,13 @@ DSH Tokens 计入总量、缓存命中率与供应商 / 模型汇总，会话数
   - 结束顺序与 CodexBar 相同：按 Esc 关闭 `/usage`，输入 `/exit` 回车并等 5 秒让 Claude Code 自己退出（期间持续读走终端输出）；仍未退出时对整棵进程树（`proc_listchildpids` 递归列出）发 SIGTERM，再等 2 秒后 SIGKILL 剩余进程，已退出的根进程不再发信号。之后删除 `~/.claude/projects/` 下该目录对应的会话文件夹（路径中非字母数字字符替换为 `-`）。Claude Code 自己的 `history.jsonl` 会多一行 `/usage`，`~/.claude.json` 会记下该目录，Sea Coffee 不改这两个文件。
   - 后台从不触发；只在点击后遇到 `expired` 时运行，401 被拒（登录被撤销）不触发。
 
-### Grok
+### Antigravity
 
-- 读取 `grok login` 写入的 `~/.grok/auth.json`（支持 `GROK_HOME`），优先 `https://auth.x.ai::` 条目。不涉及钥匙串。
-- 请求 `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`，请求头 `x-xai-token-auth: xai-grok-cli`。读取 `config.creditUsagePercent`，缺失时用 `onDemandUsed / onDemandCap`；重置时间取 `currentPeriod.end`，否则 `billingPeriodEnd`（起止时间不混用两个周期）。只返回周期、没有用量时显示为未知。
-- 套餐名来自 `GET /v1/settings` 的 `subscription_tier_display`，失败时不影响额度显示。
-- 只读不写，Sea Coffee 自己从不刷新令牌。Grok 令牌约 6 小时过期；过期时在后台运行一次 `grok models`（列出模型后退出，不发起对话、不消耗额度、不产生会话记录），由 Grok CLI 自己续期并写回 `auth.json`，随后重新读取。每 10 分钟最多尝试一次，40 秒超时；仍失败时提示运行 `grok` 或 `grok login`。每 2 分钟查询一次。
+- 登录由 `agy` 命令行与 Antigravity 桌面应用共用，保存在登录钥匙串的通用密码项里（服务 `gemini`、账户 `antigravity`）。该项由 go-keyring 通过 `/usr/bin/security` 写入，内容是 `go-keyring-base64:` 加 Base64 的 JSON：`token.access_token`、`token.expiry`、`id_token_email`。Sea Coffee 同样通过 `security find-generic-password -s gemini -a antigravity -w` 读取，不弹窗；钥匙串不可用时 Antigravity 会改写 `~/.gemini/jetski-standalone-oauth-token`（同样结构的明文 JSON），读不到钥匙串项时读它。令牌只在内存。
+- 先 `POST https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist`（`{"metadata":{"ideType":"ANTIGRAVITY"}}`）取 `cloudaicompanionProject` 与套餐名（`paidTier.name`，否则 `currentTier.name`），失败不影响额度；再 `POST …/v1internal:fetchAvailableModels`（`{"project":"…"}`，没有项目时为空对象）。主机与 `agy` 自己日志里的一致。
+- `models` 里每个模型带 `quotaInfo.remainingFraction`（0–1）与 `resetTime`。没有 `displayName` 的内部模型跳过；显示名去掉末尾括号里的推理强度后合并为一行，取其中最紧的值；按剩余从少到多排序，所以岛上显示最紧的两个模型，设置里列出全部。proto3 的 JSON 会省略值为 0 的字段：只有 `resetTime`、没有 `remainingFraction` 视为已用完；两者都没有视为未知，不显示。
+- 只读不写，从不刷新令牌，也从不启动 Antigravity。令牌约 1 小时过期，Antigravity 运行时自己续期并写回钥匙串；过期时保留上次额度并提示，下次使用 Antigravity 后自动恢复（额度也只在它运行时才会变化）。每 2 分钟最多查询一次。
+- 以上响应字段按 `agy` 二进制中的定义与公开资料实现，尚未用真实账号验证；格式不符时报“无法识别的数据”，不显示数字。
 
 ## 任务状态
 
@@ -86,18 +87,20 @@ DSH Tokens 计入总量、缓存命中率与供应商 / 模型汇总，会话数
 |---|---|---|---|---|
 | Codex | `~/.codex/sessions/**/*.jsonl` | `task_started` / `turn_started` | `task_complete` / `turn_complete` | `turn_aborted` 等 / `task_failed` 等 |
 | Claude Code | `~/.claude/projects/*/*.jsonl` | 用户消息 | `stop_reason: end_turn` | `[Request interrupted by user` / `refusal` |
-| Grok | `~/.grok/sessions/*/*/events.jsonl` | `turn_started` | `turn_ended outcome=completed` | `cancelled` / `error` |
+| Antigravity | `~/.gemini/antigravity-cli/conversation_summaries.db` 与 `~/.gemini/antigravity/…` 的 `conversation_summaries` 表 | `status` 为 `CASCADE_RUN_STATUS_RUNNING` / `BUSY` / `CANCELING` | 从运行回到 `IDLE` | 回到 `IDLE` 前看到过 `CANCELING` 记为中断；失败无法区分 |
 | Cline | `~/.cline/data/sessions/*/session_*.json` | `starting` / `running` / `pending` / `stopping` | `completed`，或从运行回到 `idle` | `cancelled` / `failed`、`error` |
 | Pi（命令行） | `~/.pi/agent/sessions/*/*.jsonl` | 用户消息，`stopReason: toolUse` | `stopReason: stop`（或 `length`） | `aborted` / `error` |
 | PI-Desktop | `~/.pi-desktop/pi.sqlite` 的 `turns` 表 | `status = running` | `completed` | `aborted` / `error` |
 | DSH | `~/.dsh/storages/session_projcache/sessions/session-*.json` | `turnBoundary.openTurnStartSeq` 或 `sessionStats.openStep` 存在 | 轮次结束（`turn/end`） | 无（DSH 的投影只记录边界，不记录结果） |
+
+Antigravity 的数据库只读打开：只选 `conversation_id`、`status`、`last_modified_time`、`workspace_uris`、嵌套层级五列，标题、预览和全文索引表从不读取；项目名取第一个工作目录的文件夹名。嵌套对话（子代理，`nesting_depth > 0`）不单独计数。桌面应用会把命令行的对话镜像进自己的库，同一个对话取修改时间较新的一行。没有 `-wal` 文件（没有进程在写）时用 `immutable` 打开，避免在 Antigravity 的目录里生成 `-wal` / `-shm` 文件；有 `-wal` 时普通只读打开以读到最新页。
 
 - Claude Code 主对话忽略子代理（`isSidechain`）和 meta 记录，也忽略本地命令写下的用户行（`<command-name>`、`<local-command-…>`、`<bash-input>` / `<bash-stdout>` 等，来自 `/context`、`/compact` 与 `!` 命令）和 `/compact` 写下的摘要（`isCompactSummary`），它们不会开始一轮回复；会调用模型的命令由随后的 assistant 行标记为运行中。子代理不单独计数；同一条消息被拆成多行时只计一次完成。后台子代理（`<会话>/subagents/*.jsonl`）仍在工作时（最后状态为运行中且 15 分钟内有活动），主对话即使已 `end_turn` 也显示运行中，完成提示推迟到子代理全部结束后再弹出一次；子代理以调用 `SubagentHandback` 交回报告视为结束（它不写 `end_turn`）。
 - DSH 的投影缓存是整份重写的 JSON（`record.rows` 里每行是 `{ver, seq, val}`），只在修改时间变化时读取；`sessionStats` 的 `openStep` 与 `turnBoundary` 的 `openTurnStartSeq` 决定是否运行中，轮次结束即视为完成，投影里没有成功 / 失败 / 取消的区分。`userQuestions.questions.active` 里的 `callId` 作为等待回答的标记，回答或消失后清除。空白会话（轮次与 Token 都为 0）保持未知。
 - PI-Desktop 不写 Pi 的 JSONL，而是存进自己的 SQLite 数据库。Sea Coffee 以只读方式（`mode=ro`，不用 `immutable`，以便看到最新的 WAL 数据）打开，每次只查询每个会话最新一轮的状态、起止时间、模型和项目名，不读取消息内容；数据库被占用时跳过这一轮，不等待 PI-Desktop。运行中的轮次用会话的 `updated_at` 判断是否仍有活动，长时间运行不会被误判为“未知”。
 - Codex 续聊会写回原创建日期的目录，因此按修改时间而非目录日期发现文件。
 - Codex 会话的 `session_meta.originator` 以 `-aux` 结尾（如 Obsidian Claudian 插件起标题用的 `claudian-aux`）时，视为其他工具的后台调用：不计入运行中，也不提示完成。这类调用常常只写 `task_started` 就中断。
-- 同时记录最近一次作答的模型名，用于完成提示：Codex 取 `turn_context.payload.model`，Claude Code 取 assistant 消息的 `message.model`（忽略错误占位 `<synthetic>`），Grok 取 `turn_started.model_id`，Cline 取会话文件的 `model`，Pi 取 assistant 消息的 `model`，DSH 取 `modelSelection.lastUsed.model`（显示时去掉 `deepseek/`、`cline-pass/` 这类路由前缀）。
+- 同时记录最近一次作答的模型名，用于完成提示：Codex 取 `turn_context.payload.model`，Claude Code 取 assistant 消息的 `message.model`（忽略错误占位 `<synthetic>`），Antigravity 的对话表没有模型名（完成提示只写工具名），Cline 取会话文件的 `model`，Pi 取 assistant 消息的 `model`，DSH 取 `modelSelection.lastUsed.model`（显示时去掉 `deepseek/`、`cline-pass/` 这类路由前缀）。
 - Pi 可以接入多个渠道。模型前缀为 `cline-pass/` 时，完成提示会注明经由 Cline Pass，例如 `Pi · Cline Pass · glm-5.3-flash`；它消耗的额度计入同一个 Cline Pass 账号，岛上的 Cline 额度会随之变化。
 - 只保留事件类型、时间、项目目录名和模型名，对话内容只在解析时经过内存，不保存、不上传。
 
@@ -112,14 +115,14 @@ DSH Tokens 计入总量、缓存命中率与供应商 / 模型汇总，会话数
 
 - 弹窗只在“新提问”出现时触发一次：启动前已存在的提问、同一次扫描内就已回答的提问、超过 5 分钟才被读到的提问都不提示；子代理（`isSidechain`）的提问忽略。
 - Claude Code 的提问会话保持“运行中”，同时带“等待回答”标记（`SessionState.awaitingAnswer`）：左侧液滴变紫蓝色脉动，展开面板标题写“Claude Code 在等你回答”。运行中超过 45 分钟没有任何事件仍按上文规则转为“未知”，等待标记随之不再显示。
-- Grok、Cline、Pi 没有可识别的提问标记（Grok 只有工具权限审批事件，与提问不是一回事），暂不支持。各工具的“等待审批”同样不判断。
+- Antigravity、Cline、Pi 没有可识别的提问标记，暂不支持。各工具的“等待审批”同样不判断。
 - 只有明确的提问工具才算：AI 在回复正文里以问句结尾并结束本轮，仍按普通“完成”处理。
 
 ## 凭据存储
 
 - 文件：`~/Library/Application Support/SeaIsland/credentials.json`，目录 `0700`、文件 `0600`；拒绝符号链接和不属于当前用户的文件，权限被放宽时自动收紧。
 - 写入：在同目录的私有临时目录中以 `O_EXCL` 创建文件，`fsync` 后原子重命名，失败时保留原文件；保存后重新读取核验。
-- 为什么不用钥匙串：没有 Apple Developer Team ID 时，登录钥匙串的分区列表只能按二进制 cdhash 识别应用，每次重新编译或更新都会失去访问权。文件存储与 Codex、Claude、Grok 的 CLI 凭据处于同一保护级别（同一用户下的其他进程也能读取）。
+- 为什么不用钥匙串：没有 Apple Developer Team ID 时，登录钥匙串的分区列表只能按二进制 cdhash 识别应用，每次重新编译或更新都会失去访问权。文件存储与 Codex、Claude 的 CLI 凭据处于同一保护级别（同一用户下的其他进程也能读取）。
 - 旧版本存于钥匙串的凭据会在首次读取时导入：后台只做不弹窗的读取；读不到时提示在设置中点击“授权读取已存凭据”。读取失败不会被当作“没有凭据”，只有成功导入或确认不存在后才标记完成，之后不会再用旧条目覆盖新值。
 - 后台钥匙串访问同时使用 `LAContext.interactionNotAllowed` 与 `SecKeychainSetUserInteractionAllowed(false)`；后者是进程级开关，因此所有钥匙串操作由同一把锁串行执行并在结束后恢复原设置。
 - 构建时可用 `SEACOFFEE_SIGNING_IDENTITY` 指定签名证书，或在 `~/Library/Application Support/SeaCoffee/Signing/identity.json` 中写入证书 SHA-1 指纹；配置存在但证书不可用时构建失败，未配置时使用 ad-hoc 签名。
@@ -164,6 +167,6 @@ API Key 输入框的已保存摘要由 `CredentialPreview.masked` 生成，仅�
 
 通知通过 `noticePresented` 传给宿主；HUD 被宿主拒绝时不强占或重试，任务状态仍在 Shelf 的任务页可见。开发 harness 仅启用演示数据，不开始账号查询、会话扫描或凭据操作。
 
-收起状态持续发布 `LiveActivityState` 并设置 `joinsPersistentActivitySet: true`；无任务也保留额度，只有停用时发布 nil。两翼使用宿主交互宽度，每侧最多两行，显示各来源的首个额度、服务商图标和圆环，左侧同时显示任务指示。未知显示破折号，首次查询显示加载环，过期值减淡并标记时钟；完整周期和错误信息留在 Shelf。模型变更会更新视图和活动辅助功能标题。刷新沿用设置的间隔（默认 5 分钟）和账号节流（Claude / Grok 最短 120 秒）。
+收起状态持续发布 `LiveActivityState` 并设置 `joinsPersistentActivitySet: true`；无任务也保留额度，只有停用时发布 nil。两翼使用宿主交互宽度，每侧最多两行，显示各来源的首个额度、服务商图标和圆环，左侧同时显示任务指示。未知显示破折号，首次查询显示加载环，过期值减淡并标记时钟；完整周期和错误信息留在 Shelf。模型变更会更新视图和活动辅助功能标题。刷新沿用设置的间隔（默认 5 分钟）和账号节流（Claude / Antigravity 最短 120 秒）。
 
 插件回归检查：构建暂存目录后，在 `.build/droppy-package` 中设置 `SEACOFFEE_DROPPYKIT_PATH`，运行 `swift run SeaCoffeeDropletChecks`。覆盖真正空闲时常驻、查询结果更新、未知值与停用撤下。harness 设置 `SEACOFFEE_PREVIEW_IDLE=1` 可导出空闲演示预览，仍不访问真实账号。

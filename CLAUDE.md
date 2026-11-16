@@ -1,6 +1,6 @@
 # Sea Coffee 工作规则
 
-Sea Coffee 是 macOS 刘海上的 AI 状态岛：显示 Codex、Claude Code、Grok、Cline、Pi 的任务是否在运行，以及各家额度与余额。项目介绍、当前进度与待办见 `docs/progress.md`，实现细节见 `docs/how-it-works.md`。
+Sea Coffee 是 macOS 刘海上的 AI 状态岛：显示 Codex、Claude Code、Antigravity、Cline、Pi 的任务是否在运行，以及各家额度与余额。项目介绍、当前进度与待办见 `docs/progress.md`，实现细节见 `docs/how-it-works.md`。
 
 ## 每次改动都要同步
 

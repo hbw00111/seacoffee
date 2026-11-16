@@ -4,7 +4,7 @@
 
 [English](README.en.md) | 简体中文
 
-一个住在 MacBook 刘海里的 AI 状态岛：一眼看到 Codex、Claude Code、Grok、Cline、Pi、DSH 的任务是否在跑，以及各家订阅和余额还剩多少。
+一个住在 MacBook 刘海里的 AI 状态岛：一眼看到 Codex、Claude Code、Antigravity、Cline、Pi、DSH 的任务是否在跑，以及各家订阅和余额还剩多少。
 
 原生 SwiftUI + AppKit，无 Electron，无第三方运行时依赖。
 
@@ -16,7 +16,7 @@
 
 - **用量模块**：CC Switch 请求与 DSH 会话统一显示在“使用记录”，按时间混排，共用当天、近 24 小时、近 7 / 14 / 30 天、全部，以及应用 / 供应商 / 模型筛选。保留已知成本、请求与会话数量、真实消耗 Tokens、缓存命中率和记录明细 / 供应商 / 模型表格；不再显示使用趋势或热力图。DSH 行标明“会话”，点开可看项目、轮次、步数与首字延迟，Token 计入统一汇总，未提供的费用显示“—”；时间筛选按最近提问时间选取整段会话累计量。CC Switch 明细保留约 30 天，更早的按天汇总；成本按其价格表计算，未定价请求不计入已知成本，不等同于账单。额度与余额趋势从首次成功查询开始积累，每 15 分钟保留最新快照，保留约 30 天。
 
-- **任务状态**：本地监听 Codex、Claude Code、Grok、Cline、Pi（含 PI-Desktop）、DSH 的会话记录，显示运行中的对话数；任务完成时在刘海处播放对勾动效，并注明是哪个工具、哪个模型完成的（如 `Claude Code · claude-opus-5-5`）；AI 向你提问时刘海处同样弹出徽章，画出问号并注明是哪个工具、哪个项目在问（目前支持 Claude Code 的 `AskUserQuestion` 和 Codex 的 `request_user_input`；Claude Code 提问后一直没回答，左侧液滴会变成紫蓝色脉动，展开面板写明在等你回答）；失败或中断时文字提醒。
+- **任务状态**：本地监听 Codex、Claude Code、Antigravity（`agy` 与桌面应用）、Cline、Pi（含 PI-Desktop）、DSH 的会话记录，显示运行中的对话数；任务完成时在刘海处播放对勾动效，并注明是哪个工具、哪个模型完成的（如 `Claude Code · claude-opus-5-5`）；AI 向你提问时刘海处同样弹出徽章，画出问号并注明是哪个工具、哪个项目在问（目前支持 Claude Code 的 `AskUserQuestion` 和 Codex 的 `request_user_input`；Claude Code 提问后一直没回答，左侧液滴会变成紫蓝色脉动，展开面板写明在等你回答）；失败或中断时文字提醒。
 - **额度与余额**，每家独立刷新、互不影响：
 
   | 来源 | 显示内容 | 接入方式 |
@@ -25,7 +25,7 @@
   | Codex 官方 | 5 小时 / 每周额度 | 通过 `codex app-server` 浏览器登录 |
   | Cline Pass | 5 小时 / 每周 / 每月 | API Key，或设备码登录 |
   | Claude | 5 小时 / 每周 / Sonnet、Opus 每周 | 复用本机 Claude Code 登录 |
-  | Grok | SuperGrok 本期额度 | 复用 `grok login` 的登录 |
+  | Antigravity | 各模型剩余额度（最紧的在前） | 复用本机 `agy` / Antigravity 登录 |
 
 - **隐私优先**：只读取事件类型、时间、项目目录名和模型名，不保存、不上传对话内容；复用其他工具的登录时只读不写。
 - 额度指示（收起为小圆环，展开为额度条）：与 CC Switch 一致，剩余 ≥20% 绿、<20% 橙、用完红，未知为灰，不把未知伪装成 0 或 100%。重置时间写倒计时（如“2h30m后重置”），更新时间写“3 分钟前更新”。额度刷新间隔可在设置中选 1–30 分钟，默认 5 分钟。
@@ -58,7 +58,7 @@ bash scripts/build-droplet.sh
 
 产物是 `dist/SeaCoffeeDroplet.droplet`。在 Droppy → Droplet Store → Local droplets 中选择它，确认运行后，在 Shelf 的组件页选择 Sea Coffee。账号连接和监听开关由卡片右上角的设置按钮打开，沿用独立版的配置与凭据；使用插件时退出独立版，避免重复查询。插件设置不提供退出宿主或修改宿主自启的按钮。
 
-本地未由 Droppy 签名的插件每次启动宿主都需要确认；修改已加载的插件需要重启 Droppy。音乐、会议、录屏等内置活动优先占用刘海，卡片仍保留任务状态与额度。额度按设置的间隔查询（默认 5 分钟），Claude / Grok 最短 120 秒；任务完成也会触发刷新，并非逐秒推送。构建要求 Swift 6.2+；脚本固定使用 DroppyKit v1.20.1，并为 Command Line Tools 缺失的 SwiftUI 宏准备独立构建副本。详见 [插件开发说明](Droplet/README.md)。
+本地未由 Droppy 签名的插件每次启动宿主都需要确认；修改已加载的插件需要重启 Droppy。音乐、会议、录屏等内置活动优先占用刘海，卡片仍保留任务状态与额度。额度按设置的间隔查询（默认 5 分钟），Claude / Antigravity 最短 120 秒；任务完成也会触发刷新，并非逐秒推送。构建要求 Swift 6.2+；脚本固定使用 DroppyKit v1.20.1，并为 Command Line Tools 缺失的 SwiftUI 宏准备独立构建副本。详见 [插件开发说明](Droplet/README.md)。
 
 ## 使用
 
@@ -72,7 +72,7 @@ bash scripts/build-droplet.sh
 - **Codex 官方**：切换接入方式后点击“连接官方账号”。使用独立的 Codex 主目录，不影响你现有的 Codex 登录。
 - **Cline Pass**：推荐在 [app.cline.bot](https://app.cline.bot) 生成 API Key 粘贴保存；也可以用设备码在浏览器登录。
 - **Claude**：先在终端运行 `claude` 并登录，然后点击“连接 Claude Code”。
-- **Grok**：先运行 `grok login`，然后点击“连接 Grok”。之后令牌过期会自动让 Grok CLI 续期，不用再手动运行。
+- **Antigravity**：先在 `agy` 或 Antigravity 应用中登录，然后点击“连接 Antigravity”。令牌过期时保留上次额度，下次使用 Antigravity 后自动恢复。
 - **任务状态**：默认监听全部六个工具，可逐个关闭。通过 Pi 使用 Cline Pass 时，完成提示会注明渠道，额度也计入 Cline 额度。
 
 需要开机自动运行时，在设置“外观与交互”中打开“开机自启”（立即生效）。
@@ -82,9 +82,9 @@ bash scripts/build-droplet.sh
 ## 安全与隐私
 
 - 自己保存的凭据（Sub2API Key、Cline 登录或 Key）存放在 `~/Library/Application Support/SeaIsland/credentials.json`，权限 `0600`，原子写入。选择文件而非钥匙串，是因为未使用 Apple Developer ID 签名时，钥匙串授权会绑定到每次构建的二进制哈希，重新编译后全部失效。
-- Claude、Grok 的令牌只读、仅保存在内存，从不刷新或写回，不会影响原工具的登录。令牌过期时只让原 CLI 自己续期：Grok 运行一次 `grok models`；Claude 在后台从不启动 Claude Code，只保留上次额度并提示，等你下次使用 Claude Code 时由它自己续期，点击“重新读取”时才在独立目录里打开一次 `/usage` 读取额度（无工具、无钩子、不发提问，结束后删除会话记录）。
+- Claude、Antigravity 的令牌只读、仅保存在内存，从不刷新或写回，不会影响原工具的登录。令牌过期时只让原工具自己续期：Antigravity 从不被启动，等你下次使用时自动恢复；Claude 在后台从不启动 Claude Code，只保留上次额度并提示，等你下次使用 Claude Code 时由它自己续期，点击“重新读取”时才在独立目录里打开一次 `/usage` 读取额度（无工具、无钩子、不发提问，结束后删除会话记录）。
 - 所有请求拒绝跟随重定向，凭据不写入日志或 UserDefaults。
-- Claude、Grok、Cline 的额度接口是各家官网或 CLI 使用的接口，并非公开稳定 API，格式变化时会保留旧值并提示，而不是显示错误数字。
+- Claude、Antigravity、Cline 的额度接口是各家官网或 CLI 使用的接口，并非公开稳定 API，格式变化时会保留旧值并提示，而不是显示错误数字。
 
 详细的数据来源、协议和实现说明见 [docs/how-it-works.md](docs/how-it-works.md)，当前进度、待办与已知问题见 [docs/progress.md](docs/progress.md)。
 
@@ -110,7 +110,7 @@ bash scripts/check-credentials.sh        # 凭据存储与旧钥匙串导入（�
 - [NotchAI](https://github.com/Winnie-Wong2026/NotchAI)：AppKit 浮层与本地监测思路。
 - [Sub2API](https://github.com/Wei-Shaw/sub2api)、[Codex App Server](https://developers.openai.com/codex/app-server)、[Cline SDK](https://github.com/cline/cline)：接口字段与登录协议。
 
-Codex、Claude、Cline、Grok 的名称和标志归 OpenAI、Anthropic、Cline、xAI 所有，DSH 归 DeepSeek，本项目与它们没有任何隶属关系，标志仅用于标识对应的来源。
+Codex、Claude、Cline、Antigravity 的名称和标志归 OpenAI、Anthropic、Cline、Google 所有，DSH 归 DeepSeek，本项目与它们没有任何隶属关系，标志仅用于标识对应的来源。
 
 ## 许可证
 

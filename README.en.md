@@ -4,7 +4,7 @@
 
 English | [简体中文](README.md)
 
-An AI status island that lives in your MacBook's notch. See at a glance whether Codex, Claude Code, Grok, Cline, Pi, and DSH are working, and how much of each subscription or balance you have left.
+An AI status island that lives in your MacBook's notch. See at a glance whether Codex, Claude Code, Antigravity, Cline, Pi, and DSH are working, and how much of each subscription or balance you have left.
 
 Native SwiftUI + AppKit. No Electron, no third-party runtime dependencies.
 
@@ -18,7 +18,7 @@ Native SwiftUI + AppKit. No Electron, no third-party runtime dependencies.
 
 - **Usage dashboard**: combines CC Switch requests and DSH sessions in one chronological record list, with shared time ranges (today, last 24 hours, last 7 / 14 / 30 days, or all time) and app, provider, and model filters. It keeps known cost, separate request and session counts, tokens, cache hit rate, and detail / provider / model tables; usage trend charts and the heatmap are removed. DSH rows are labelled as sessions, with project, turns, steps, and first-token latency in their details. Their tokens contribute to the combined totals; unavailable costs show “—”. Time filters select whole-session counters by the last prompt time. CC Switch retains about 30 days of request details and older daily rollups; its price table supplies costs, unpriced requests stay out of known cost, and the result is not a bill. Quota and balance trends retain the latest successful snapshot every 15 minutes for about 30 days.
 
-- **Task status**: follows the local session files of Codex, Claude Code, Grok, Cline, Pi (including PI-Desktop, which keeps its sessions in SQLite) and DSH and shows how many conversations are running. When a task finishes, the notch plays a checkmark animation labelled with the agent and model that finished it (for example `Claude Code · claude-opus-5-5`). When an agent asks you a question, the notch pops the same badge with a question mark, labelled with the agent and project that is asking (supported for Claude Code's `AskUserQuestion` and Codex's `request_user_input`). If a Claude Code question stays unanswered, the drop on the left turns violet and pulses, and the expanded panel says it is waiting for you. Failures and interruptions show a text notice.
+- **Task status**: follows the local session records of Codex, Claude Code, Antigravity (the `agy` CLI and the desktop app, read from their SQLite databases), Cline, Pi (including PI-Desktop, which keeps its sessions in SQLite) and DSH and shows how many conversations are running. When a task finishes, the notch plays a checkmark animation labelled with the agent and model that finished it (for example `Claude Code · claude-opus-5-5`). When an agent asks you a question, the notch pops the same badge with a question mark, labelled with the agent and project that is asking (supported for Claude Code's `AskUserQuestion` and Codex's `request_user_input`). If a Claude Code question stays unanswered, the drop on the left turns violet and pulses, and the expanded panel says it is waiting for you. Failures and interruptions show a text notice.
 - **Quotas and balances**, each refreshed independently:
 
   | Source | What it shows | How it connects |
@@ -27,7 +27,7 @@ Native SwiftUI + AppKit. No Electron, no third-party runtime dependencies.
   | Codex official | 5-hour / weekly limits | Browser sign-in through `codex app-server` |
   | Cline Pass | 5-hour / weekly / monthly | API key, or device-code sign-in |
   | Claude | 5-hour / weekly / Sonnet and Opus weekly | Reuses your Claude Code login |
-  | Grok | SuperGrok current period | Reuses your `grok login` session |
+  | Antigravity | Remaining quota per model (tightest first) | Reuses your local `agy` / Antigravity login |
 
 - **Privacy first**: only event types, timestamps, project folder names, and model names are read. Conversation content is never stored or uploaded. Logins borrowed from other tools are read-only.
 - Quota indicators (small rings when collapsed, bars when expanded): colored like CC Switch — green at 20% or more left, orange below 20%, red when used up, grey when unknown. Unknown data is never shown as 0% or 100%. Resets show as a countdown ("2h30m后重置") and updates as "3 分钟前更新". The quota refresh interval is configurable from 1 to 30 minutes (default 5).
@@ -56,7 +56,7 @@ Sea Coffee also runs inside Droppy 16.0.1+: a Shelf dashboard shows quotas and t
 
 Run `bash scripts/build-droplet.sh`, then choose `dist/SeaCoffeeDroplet.droplet` under **Droplet Store → Local droplets**. Approve the local build and select Sea Coffee on the Shelf widgets page. The gear opens account and monitoring settings, sharing the standalone preferences and credential storage. Quit the standalone app to avoid duplicate polling. The embedded settings cannot quit Droppy or change its login item.
 
-Local unsigned droplets require approval on each host launch; replacing a loaded build requires restarting Droppy. Built-in music, meetings and recording take priority over its compact live activity. Quotas poll at the configured interval (default 5 minutes; Claude / Grok at least 120 seconds apart), with additional refreshes on task completion; this is not second-by-second streaming. Swift 6.2+ is required. The build pins DroppyKit v1.20.1 and prepares an isolated macro compatibility copy for Command Line Tools. See [extension development](Droplet/README.md).
+Local unsigned droplets require approval on each host launch; replacing a loaded build requires restarting Droppy. Built-in music, meetings and recording take priority over its compact live activity. Quotas poll at the configured interval (default 5 minutes; Claude / Antigravity at least 120 seconds apart), with additional refreshes on task completion; this is not second-by-second streaming. Swift 6.2+ is required. The build pins DroppyKit v1.20.1 and prepares an isolated macro compatibility copy for Command Line Tools. See [extension development](Droplet/README.md).
 
 ## Usage
 
@@ -70,7 +70,7 @@ Open **Settings** and connect the sources you use:
 - **Codex official**: switch the connection mode and click "连接官方账号" (Connect official account). A separate Codex home directory is used, so your existing Codex login is untouched.
 - **Cline Pass**: create an API key at [app.cline.bot](https://app.cline.bot) and paste it in, or sign in with a device code in your browser.
 - **Claude**: sign in with `claude` in a terminal first, then click "连接 Claude Code" (Connect Claude Code).
-- **Grok**: run `grok login` first, then click "连接 Grok" (Connect Grok). After that, an expired token is refreshed by the Grok CLI automatically.
+- **Antigravity**: sign in with `agy` or the Antigravity app first, then click "连接 Antigravity" (Connect Antigravity). When the token expires the last quota stays on screen and recovers the next time you use Antigravity.
 - **Task status**: all six agents are followed by default; each can be turned off. When Pi uses Cline Pass, the completion label names the channel and the usage counts toward the Cline quota.
 
 To start Sea Coffee when you log in, turn on "开机自启" (Launch at login) under "外观与交互" (Appearance and interaction) in Settings; it takes effect immediately.
@@ -80,9 +80,9 @@ Hover over the top of the screen to expand; move away to collapse. "固定展开
 ## Security and privacy
 
 - Credentials that Sea Coffee saves itself (Sub2API key, Cline login or key) live in `~/Library/Application Support/SeaIsland/credentials.json` with `0600` permissions and atomic writes. A file is used instead of the Keychain because, without an Apple Developer ID signature, Keychain grants are tied to each build's binary hash and are lost on every rebuild.
-- Claude and Grok tokens are read-only, kept in memory, and never refreshed or written back, so the original tools stay signed in. When a token expires, only the original CLI renews it: Grok runs `grok models` once; for Claude, Sea Coffee never starts Claude Code in the background: it keeps the last quota and says the login expired until you next use Claude Code, which renews itself. Only when you click "重新读取" (Re-read) does it open Claude Code's `/usage` screen once in a dedicated folder and read the quota from it (no tools, no hooks, no prompt sent, transcript removed afterwards).
+- Claude and Antigravity tokens are read-only, kept in memory, and never refreshed or written back, so the original tools stay signed in. When a token expires, only the original tool renews it: Antigravity is never started, and its quota recovers the next time you use it; for Claude, Sea Coffee never starts Claude Code in the background: it keeps the last quota and says the login expired until you next use Claude Code, which renews itself. Only when you click "重新读取" (Re-read) does it open Claude Code's `/usage` screen once in a dedicated folder and read the quota from it (no tools, no hooks, no prompt sent, transcript removed afterwards).
 - No request follows redirects, and credentials are never written to logs or UserDefaults.
-- The Claude, Grok, and Cline quota endpoints are the ones their websites or CLIs use, not stable public APIs. If a format changes, Sea Coffee keeps the last value and shows a notice rather than a wrong number.
+- The Claude, Antigravity, and Cline quota endpoints are the ones their websites or CLIs use, not stable public APIs. If a format changes, Sea Coffee keeps the last value and shows a notice rather than a wrong number.
 
 Data sources, protocols, and implementation details are documented (in Chinese) in [docs/how-it-works.md](docs/how-it-works.md); current status, roadmap, and known issues are in [docs/progress.md](docs/progress.md).
 
@@ -106,7 +106,7 @@ Issues and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
 - [NotchAI](https://github.com/Winnie-Wong2026/NotchAI): ideas for the AppKit overlay and local monitoring.
 - [Sub2API](https://github.com/Wei-Shaw/sub2api), [Codex App Server](https://developers.openai.com/codex/app-server), [Cline SDK](https://github.com/cline/cline): API fields and sign-in protocols.
 
-Codex, Claude, Cline, and Grok names and logos belong to OpenAI, Anthropic, Cline, and xAI; DSH belongs to DeepSeek. This project is not affiliated with any of them; the logos only identify each source.
+Codex, Claude, Cline, and Antigravity names and logos belong to OpenAI, Anthropic, Cline, and Google; DSH belongs to DeepSeek. This project is not affiliated with any of them; the logos only identify each source.
 
 ## License
 

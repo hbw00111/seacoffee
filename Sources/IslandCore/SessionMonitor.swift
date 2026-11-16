@@ -12,7 +12,7 @@ public struct MonitorSnapshot: Sendable {
 public struct SessionSource: Sendable {
     public let agent: Agent
     public let root: URL
-    /// A SQLite database (PI-Desktop) rather than a directory of session files.
+    /// SQLite databases (PI-Desktop, Antigravity) rather than a directory of session files.
     public let isDatabase: Bool
     public init(agent: Agent, path: String, isDatabase: Bool = false) {
         self.agent = agent
@@ -22,12 +22,14 @@ public struct SessionSource: Sendable {
 
     public static func defaults(codexPath: String, enabled: Set<Agent> = Set(Agent.allCases)) -> [SessionSource] {
         let paths: [(Agent, String)] = [(.codex, codexPath), (.claude, "~/.claude/projects"),
-                                        (.grok, "~/.grok/sessions"), (.cline, "~/.cline/data/sessions"),
+                                        (.cline, "~/.cline/data/sessions"),
                                         (.pi, "~/.pi/agent/sessions"),
                                         (.dsh, "~/.dsh/storages/session_projcache/sessions")]
         var sources = paths.filter { enabled.contains($0.0) }.map { SessionSource(agent: $0.0, path: $0.1) }
         // PI-Desktop shares the Pi toggle but stores sessions in its own database.
         if enabled.contains(.pi) { sources.append(SessionSource(agent: .pi, path: "~/.pi-desktop/pi.sqlite", isDatabase: true)) }
+        // Antigravity's CLI and desktop app each keep a conversation database under ~/.gemini.
+        if enabled.contains(.antigravity) { sources.append(SessionSource(agent: .antigravity, path: "~/.gemini", isDatabase: true)) }
         return sources
     }
 
@@ -40,10 +42,25 @@ public struct SessionSource: Sendable {
         case .codex: return url.pathExtension == "jsonl"
         // Top-level transcripts, plus subagent transcripts that only keep their parent running.
         case .claude: return url.pathExtension == "jsonl" && (url.deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL == root.standardizedFileURL || parentTranscript(of: url) != nil)
-        case .grok: return name == "events.jsonl"
         case .pi: return url.pathExtension == "jsonl" && url.deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL == root.standardizedFileURL
         case .cline: return name.hasPrefix("session_") && name.hasSuffix(".json") && !name.hasSuffix(".messages.json")
         case .dsh: return name.hasPrefix("session-") && name.hasSuffix(".json")
+        case .antigravity: return false
+        }
+    }
+
+    /// Cursor-key prefix of a database source's sessions.
+    var databasePrefix: String { agent == .antigravity ? "antigravity:" : "pi-desktop:" }
+
+    /// The current state of each session in a database source, or nil when it cannot be read now.
+    func databaseSessions(since: Date) -> [(id: String, apply: (inout SessionState) -> Void)]? {
+        if agent == .antigravity {
+            return AntigravityStore.conversations(under: root, since: since)?.map { row in
+                (databasePrefix + row.id, { $0.consumeAntigravity(row) })
+            }
+        }
+        return PiDesktopStore.latestTurns(at: root, since: since)?.map { turn in
+            (databasePrefix + turn.sessionID, { $0.consumePiDesktop(turn) })
         }
     }
 
@@ -58,23 +75,16 @@ public struct SessionSource: Sendable {
     }
 
     func newState(for url: URL) -> SessionState {
-        // Codex rollout names are unique; other agents reuse file names (Grok's are all events.jsonl).
-        var state = SessionState(id: agent == .codex ? url.lastPathComponent : "\(agent.rawValue):\(url.path)", agent: agent)
-        if agent == .grok {
-            // Grok names the project folder after the percent-encoded working directory.
-            let folder = url.deletingLastPathComponent().deletingLastPathComponent().lastPathComponent
-            if let cwd = folder.removingPercentEncoding, !cwd.isEmpty { state.project = URL(fileURLWithPath: cwd).lastPathComponent }
-        }
-        return state
+        // Codex rollout names are unique; other agents reuse file names.
+        SessionState(id: agent == .codex ? url.lastPathComponent : "\(agent.rawValue):\(url.path)", agent: agent)
     }
 
     func consume(_ line: Data, into state: inout SessionState) {
         switch agent {
         case .codex: state.consume(line)
         case .claude: state.consumeClaude(line, sidechain: false)
-        case .grok: state.consumeGrok(line)
         case .pi: state.consumePi(line)
-        case .cline, .dsh: break
+        case .cline, .dsh, .antigravity: break
         }
     }
 
@@ -166,15 +176,15 @@ public final class SessionMonitor: @unchecked Sendable {
         var allowed = Set<URL>()
         for source in present {
             if source.isDatabase {
-                guard let turns = PiDesktopStore.latestTurns(at: source.root, since: now.addingTimeInterval(-172800)) else {
+                guard let rows = source.databaseSessions(since: now.addingTimeInterval(-172800)) else {
                     // A locked or migrating database is skipped for this poll, keeping the last states.
-                    allowed.formUnion(cursors.keys.filter { $0.scheme == "pi-desktop" }); continue
+                    allowed.formUnion(cursors.keys.filter { $0.absoluteString.hasPrefix(source.databasePrefix) }); continue
                 }
-                for turn in turns {
-                    guard let key = URL(string: "pi-desktop:\(turn.sessionID)") else { continue }
-                    var cursor = cursors[key] ?? Cursor(state: SessionState(id: "pi-desktop:\(turn.sessionID)", agent: source.agent))
+                for row in rows {
+                    guard let key = URL(string: row.id) else { continue }
+                    var cursor = cursors[key] ?? Cursor(state: SessionState(id: row.id, agent: source.agent))
                     let oldTransition = cursor.state.transitionID
-                    cursor.state.consumePiDesktop(turn)
+                    row.apply(&cursor.state)
                     if !firstScan, oldTransition != cursor.state.transitionID,
                        [.completed, .failed, .interrupted].contains(cursor.state.state), cursor.state.updatedAt >= launchedAt {
                         finished.append(cursor.state)

@@ -3,12 +3,12 @@ import IslandCore
 
 /// Icon and colour for each quota source, shared by the island and Settings.
 enum ServiceStyle {
-    case codex, cline, claude, grok, pi, dsh
+    case codex, cline, claude, antigravity, pi, dsh
     init(agent: Agent) {
         switch agent {
         case .codex: self = .codex
         case .claude: self = .claude
-        case .grok: self = .grok
+        case .antigravity: self = .antigravity
         case .cline: self = .cline
         case .pi: self = .pi
         case .dsh: self = .dsh
@@ -18,7 +18,7 @@ enum ServiceStyle {
         switch laneID {
         case "CL": self = .cline
         case "CC": self = .claude
-        case "GK": self = .grok
+        case "AG": self = .antigravity
         default: self = .codex
         }
     }
@@ -28,7 +28,7 @@ enum ServiceStyle {
         case .codex: return Palette.mint
         case .cline: return Palette.blue
         case .claude: return Palette.clay
-        case .grok: return Palette.silver
+        case .antigravity: return Palette.silver
         case .pi: return Palette.lilac
         case .dsh: return Palette.ice
         }
@@ -38,7 +38,7 @@ enum ServiceStyle {
         case .codex: return NotchPalette.mint
         case .cline: return NotchPalette.blue
         case .claude: return NotchPalette.clay
-        case .grok: return NotchPalette.silver
+        case .antigravity: return NotchPalette.silver
         case .pi: return NotchPalette.lilac
         case .dsh: return NotchPalette.ice
         }
@@ -274,7 +274,9 @@ struct IslandView: View {
                     ForEach(windows) { quota in
                         HStack(spacing: 8) {
                             Text(totalOnly ? "总额度" : quota.label == "7 天" ? "每周" : quota.label)
-                                .font(.system(size: 10, weight: .medium)).frame(width: 38, alignment: .leading)
+                                // Windows ("5 小时") share a 38 pt column; Antigravity's model names take what they need.
+                                .font(.system(size: 10, weight: .medium)).lineLimit(1)
+                                .frame(minWidth: 38, alignment: .leading).layoutPriority(1)
                             Text(totalOnly ? quotaCaption : resetCaption(quota))
                                 .font(.system(size: 10)).foregroundStyle(NotchPalette.dim).lineLimit(1)
                                 .help(totalOnly ? quotaCaption : resetCaption(quota))
