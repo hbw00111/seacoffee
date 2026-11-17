@@ -30,7 +30,7 @@ Native SwiftUI + AppKit. No Electron, no third-party runtime dependencies.
   | Antigravity | 5-hour / weekly for Gemini and for Claude/GPT | Read from the Antigravity app running on this Mac |
 
 - **Privacy first**: only event types, timestamps, project folder names, and model names are read. Conversation content is never stored or uploaded. Logins borrowed from other tools are read-only.
-- **You choose what the notch shows**: each account in the expanded panel has a checkmark (Settings has the same checkboxes under the account overview). Ticked accounts appear in the collapsed notch; the rest only show when expanded.
+- **You choose what the notch shows**: Settings has a row of checkboxes under the account overview. Unticked accounts leave the island, collapsed and expanded, and stay visible in Settings only.
 - Quota indicators (small rings when collapsed, bars when expanded): colored like CC Switch — green at 20% or more left, orange below 20%, red when used up, grey when unknown. Unknown data is never shown as 0% or 100%. Resets show as a countdown ("2h30m后重置") and updates as "3 分钟前更新". The quota refresh interval is configurable from 1 to 30 minutes (default 5).
 - Settings navigation and account-source controls use sliding highlights, hover feedback, and keyboard focus outlines; the island smoothly adjusts to quota-row changes.
 - Usage records build cards and rows as needed to reduce repeated drawing while scrolling. All sources share the same column widths and 20-row pagination.

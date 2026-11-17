@@ -165,7 +165,7 @@ struct IslandView: View {
                 if model.expanded {
                     Text("Sea Coffee").font(.system(size: 9, weight: .medium)).foregroundStyle(NotchPalette.dim)
                 } else {
-                    // Only the accounts ticked in the expanded panel; four or more fold into two columns.
+                    // Only the accounts ticked in Settings; four or more fold into two columns.
                     let ids = model.notchLaneIDs
                     if ids.count >= 4 {
                         Grid(alignment: .leading, horizontalSpacing: 6, verticalSpacing: 2) {
@@ -215,13 +215,21 @@ struct IslandView: View {
                 Spacer()
                 Text("剩余额度").font(.system(size: 10, weight: .medium))
             }.foregroundStyle(NotchPalette.dim).frame(height: 26)
-            quotaRow(id: IslandModel.codexLaneID, style: .codex, title: model.source.title,
-                     windows: QuotaPresentation.windows(model.displayedSnapshot, totalOnly: model.source == .sub2api),
-                     totalOnly: model.source == .sub2api, message: "在设置中连接账号",
-                     loading: model.refreshing && model.displayedSnapshot == nil, stale: model.isStale)
-            ForEach(model.planLanes) { lane in
-                GlassDivider(darkSurface: true)
-                quotaRow(id: lane.id, style: ServiceStyle(laneID: lane.id), title: lane.title,
+            // Accounts unticked in Settings are left out here as well as in the collapsed notch.
+            let lanes = model.planLanes.filter { model.showsInNotch($0.id) }
+            let showsCodex = model.showsInNotch(IslandModel.codexLaneID)
+            if showsCodex {
+                quotaRow(style: .codex, title: model.source.title,
+                         windows: QuotaPresentation.windows(model.displayedSnapshot, totalOnly: model.source == .sub2api),
+                         totalOnly: model.source == .sub2api, message: "在设置中连接账号",
+                         loading: model.refreshing && model.displayedSnapshot == nil, stale: model.isStale)
+            } else if lanes.isEmpty {
+                Text("没有选择要显示的账号 · 在设置的账号概览里勾选").font(.system(size: 10))
+                    .foregroundStyle(NotchPalette.dim).frame(height: QuotaPresentation.height(0))
+            }
+            ForEach(lanes) { lane in
+                if showsCodex || lane.id != lanes.first?.id { GlassDivider(darkSurface: true) }
+                quotaRow(style: ServiceStyle(laneID: lane.id), title: lane.title,
                          windows: QuotaPresentation.windows(lane.snapshot),
                          message: lane.failed ? "额度没查到 · " + lane.message : lane.message, loading: lane.loading, stale: lane.stale)
             }
@@ -249,7 +257,7 @@ struct IslandView: View {
         guard let reset = quota.resetsAt else { return "重置时间未提供" }
         return UsageFormat.resetText(reset) ?? "已到重置时间 · 待刷新"
     }
-    private func quotaRow(id: String, style: ServiceStyle, title: String, windows: [Quota],
+    private func quotaRow(style: ServiceStyle, title: String, windows: [Quota],
                           totalOnly: Bool = false, message: String, loading: Bool, stale: Bool) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 7) {
@@ -261,15 +269,6 @@ struct IslandView: View {
                 if totalOnly, model.displayedSnapshot?.balance != nil {
                     Text(amount).font(.system(size: 11, weight: .medium)).monospacedDigit().foregroundStyle(NotchPalette.text)
                 }
-                let shown = model.showsInNotch(id)
-                Button { withAnimation(model.animation) { model.setShowsInNotch(id, !shown) } } label: {
-                    Image(systemName: shown ? "checkmark.circle.fill" : "circle").font(.system(size: 12))
-                        .foregroundStyle(shown ? NotchPalette.accent : NotchPalette.dim)
-                        .frame(width: 16, height: 16).contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(shown ? "收起时在刘海显示；点击后只在展开面板里显示" : "收起时不在刘海显示；点击后显示")
-                .accessibilityLabel("\(title) 在刘海显示").accessibilityAddTraits(shown ? .isSelected : [])
             }.frame(height: 16)
             if windows.isEmpty {
                 HStack {

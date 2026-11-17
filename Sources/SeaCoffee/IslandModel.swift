@@ -87,7 +87,7 @@ final class IslandModel: ObservableObject {
     @Published var hoverEnabled: Bool
     /// Agents whose local session files are followed; all by default.
     @Published private(set) var watchedAgents: Set<Agent>
-    /// Accounts left out of the collapsed notch; everything shows by default.
+    /// Accounts left off the island; everything shows by default.
     @Published private(set) var notchHidden: Set<String>
     /// Agents that did not exist when `watchedAgents` was first saved.
     private static let addedAgents: [(version: Int, agent: Agent)] = [(1, .dsh), (2, .antigravity)]
@@ -131,8 +131,12 @@ final class IslandModel: ObservableObject {
     var islandWidth: CGFloat { completion != nil ? completionWidth : expanded ? max(360, compactWidth) : compactWidth }
     var islandHeight: CGFloat { completion != nil ? (hasNotch ? headerHeight : 0) + 72 + (completionCaption == nil ? 0 : CompletionCaption.height) : expanded ? headerHeight + detailHeight : headerHeight }
     var detailHeight: CGFloat {
-        122 + QuotaPresentation.height(QuotaPresentation.windows(displayedSnapshot, totalOnly: source == .sub2api).count)
-            + planLanes.reduce(0) { $0 + QuotaPresentation.height(QuotaPresentation.windows($1.snapshot).count) + 0.5 }
+        // Unticked accounts take no room; with none ticked a one-line note takes an empty row's height.
+        let lanes = planLanes.filter { showsInNotch($0.id) }
+        let codex = showsInNotch(Self.codexLaneID)
+            ? QuotaPresentation.height(QuotaPresentation.windows(displayedSnapshot, totalOnly: source == .sub2api).count)
+            : lanes.isEmpty ? QuotaPresentation.height(0) : -0.5
+        return 122 + codex + lanes.reduce(0) { $0 + QuotaPresentation.height(QuotaPresentation.windows($1.snapshot).count) + 0.5 }
     }
     var animation: Animation { reduceMotion ? .easeOut(duration: 0.16) : .spring(response: 0.48, dampingFraction: 0.86) }
     var openingAnimation: Animation { reduceMotion ? .easeOut(duration: 0.1) : .spring(response: 0.32, dampingFraction: 0.9) }
@@ -204,7 +208,7 @@ final class IslandModel: ObservableObject {
     }
     /// The Codex / API row's id in the notch selection; subscription lanes use their own ids.
     static let codexLaneID = "CX"
-    /// Accounts ticked in the expanded panel, in display order: only these show in the collapsed notch.
+    /// Accounts ticked in Settings, in display order: only these show on the island, collapsed or expanded.
     var notchLaneIDs: [String] { ([Self.codexLaneID] + planLanes.map(\.id)).filter(showsInNotch) }
     func showsInNotch(_ id: String) -> Bool { demo || !notchHidden.contains(id) }
     func setShowsInNotch(_ id: String, _ on: Bool) {
