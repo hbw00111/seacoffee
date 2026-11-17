@@ -75,6 +75,7 @@ DSH Tokens 计入总量、缓存命中率与供应商 / 模型汇总，会话数
 - 先 `POST https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist`（`{"metadata":{"ideType":"ANTIGRAVITY"}}`）取 `cloudaicompanionProject` 与套餐名（`paidTier.name`，否则 `currentTier.name`），失败不影响额度；再 `POST …/v1internal:fetchAvailableModels`（`{"project":"…"}`，没有项目时为空对象）。主机与 `agy` 自己日志里的一致。
 - `models` 里每个模型带 `quotaInfo.remainingFraction`（0–1）与 `resetTime`。没有 `displayName` 的内部模型跳过；显示名去掉末尾括号里的推理强度后合并为一行，取其中最紧的值；按剩余从少到多排序，所以岛上显示最紧的两个模型，设置里列出全部。proto3 的 JSON 会省略值为 0 的字段：只有 `resetTime`、没有 `remainingFraction` 视为已用完；两者都没有视为未知，不显示。
 - 只读不写，从不刷新令牌，也从不启动 Antigravity。令牌约 1 小时过期，Antigravity 运行时自己续期并写回钥匙串；过期时保留上次额度并提示，下次使用 Antigravity 后自动恢复（额度也只在它运行时才会变化）。每 2 分钟最多查询一次。
+- 请求失败时提示里带上 HTTP 状态和服务器返回的 `error.status` · `error.message`（最多 160 字）；只有 401 视为登录被拒。
 - 以上响应字段按 `agy` 二进制中的定义与公开资料实现，尚未用真实账号验证；格式不符时报“无法识别的数据”，不显示数字。
 
 ## 任务状态

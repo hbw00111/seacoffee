@@ -1,7 +1,9 @@
 import Foundation
 
 public enum AntigravityError: LocalizedError, Equatable {
-    case missingCredentials, expired, signedOut, usageUnavailable, invalidResponse, http(Int)
+    case missingCredentials, expired, signedOut, usageUnavailable, invalidResponse
+    /// The status and, when the server gave one, its own reason.
+    case http(Int, String?)
     public var errorDescription: String? {
         switch self {
         case .missingCredentials: return "未找到 Antigravity 登录，请先在终端运行 agy 并登录。"
@@ -9,7 +11,7 @@ public enum AntigravityError: LocalizedError, Equatable {
         case .signedOut: return "Antigravity 拒绝了当前凭据，请运行 agy 重新登录。"
         case .usageUnavailable: return "Antigravity 没有返回任何模型的额度。"
         case .invalidResponse: return "Antigravity 返回了无法识别的数据。"
-        case .http(let code): return "Antigravity 请求失败（HTTP \(code)），请稍后重试。"
+        case .http(let code, let reason): return "Antigravity 请求失败（HTTP \(code)\(reason.map { "：\($0)" } ?? "")）。"
         }
     }
 }
@@ -51,11 +53,16 @@ public enum AntigravityProtocol {
         (try? JSONSerialization.data(withJSONObject: project.map { ["project": $0] } ?? [:])) ?? Data("{}".utf8)
     }
 
-    public static func validate(status: Int) throws {
+    /// Only 401 means the login was rejected; a 403 names a project or permission problem,
+    /// so the server's reason (`error.status` and `error.message`) is shown as it is.
+    public static func validate(status: Int, body: Data = Data()) throws {
         switch status {
         case 200..<300: return
-        case 401, 403: throw AntigravityError.signedOut
-        default: throw AntigravityError.http(status)
+        case 401: throw AntigravityError.signedOut
+        default:
+            let error = (try? JSONSerialization.jsonObject(with: body) as? [String: Any])?["error"] as? [String: Any]
+            let reason = [error?["status"] as? String, error?["message"] as? String].compactMap { $0 }.joined(separator: " · ")
+            throw AntigravityError.http(status, reason.isEmpty ? nil : String(reason.prefix(160)))
         }
     }
 

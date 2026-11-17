@@ -165,20 +165,20 @@ struct IslandView: View {
                 if model.expanded {
                     Text("Sea Coffee").font(.system(size: 9, weight: .medium)).foregroundStyle(NotchPalette.dim)
                 } else {
-                    let lanes = model.planLanes
-                    if lanes.count >= 3 {
+                    // Only the accounts ticked in the expanded panel; four or more fold into two columns.
+                    let ids = model.notchLaneIDs
+                    if ids.count >= 4 {
                         Grid(alignment: .leading, horizontalSpacing: 6, verticalSpacing: 2) {
-                            ForEach(Array(stride(from: 0, to: lanes.count + 1, by: 2)), id: \.self) { row in
+                            ForEach(Array(stride(from: 0, to: ids.count, by: 2)), id: \.self) { row in
                                 GridRow {
-                                    compactItem(row == 0 ? nil : lanes[row - 1])
-                                    if row < lanes.count { compactItem(lanes[row]) }
+                                    compactItem(ids[row])
+                                    if row + 1 < ids.count { compactItem(ids[row + 1]) }
                                 }
                             }
                         }
                     } else {
-                        VStack(alignment: .leading, spacing: lanes.count == 2 ? 0 : 2) {
-                            compactItem(nil)
-                            ForEach(lanes) { compactItem($0) }
+                        VStack(alignment: .leading, spacing: ids.count == 3 ? 0 : 2) {
+                            ForEach(ids, id: \.self) { compactItem($0) }
                         }
                     }
 
@@ -215,13 +215,13 @@ struct IslandView: View {
                 Spacer()
                 Text("剩余额度").font(.system(size: 10, weight: .medium))
             }.foregroundStyle(NotchPalette.dim).frame(height: 26)
-            quotaRow(style: .codex, title: model.source.title,
+            quotaRow(id: IslandModel.codexLaneID, style: .codex, title: model.source.title,
                      windows: QuotaPresentation.windows(model.displayedSnapshot, totalOnly: model.source == .sub2api),
                      totalOnly: model.source == .sub2api, message: "在设置中连接账号",
                      loading: model.refreshing && model.displayedSnapshot == nil, stale: model.isStale)
             ForEach(model.planLanes) { lane in
                 GlassDivider(darkSurface: true)
-                quotaRow(style: ServiceStyle(laneID: lane.id), title: lane.title,
+                quotaRow(id: lane.id, style: ServiceStyle(laneID: lane.id), title: lane.title,
                          windows: QuotaPresentation.windows(lane.snapshot),
                          message: lane.failed ? "额度没查到 · " + lane.message : lane.message, loading: lane.loading, stale: lane.stale)
             }
@@ -249,7 +249,7 @@ struct IslandView: View {
         guard let reset = quota.resetsAt else { return "重置时间未提供" }
         return UsageFormat.resetText(reset) ?? "已到重置时间 · 待刷新"
     }
-    private func quotaRow(style: ServiceStyle, title: String, windows: [Quota],
+    private func quotaRow(id: String, style: ServiceStyle, title: String, windows: [Quota],
                           totalOnly: Bool = false, message: String, loading: Bool, stale: Bool) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 7) {
@@ -261,6 +261,15 @@ struct IslandView: View {
                 if totalOnly, model.displayedSnapshot?.balance != nil {
                     Text(amount).font(.system(size: 11, weight: .medium)).monospacedDigit().foregroundStyle(NotchPalette.text)
                 }
+                let shown = model.showsInNotch(id)
+                Button { withAnimation(model.animation) { model.setShowsInNotch(id, !shown) } } label: {
+                    Image(systemName: shown ? "checkmark.circle.fill" : "circle").font(.system(size: 12))
+                        .foregroundStyle(shown ? NotchPalette.accent : NotchPalette.dim)
+                        .frame(width: 16, height: 16).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(shown ? "收起时在刘海显示；点击后只在展开面板里显示" : "收起时不在刘海显示；点击后显示")
+                .accessibilityLabel("\(title) 在刘海显示").accessibilityAddTraits(shown ? .isSelected : [])
             }.frame(height: 16)
             if windows.isEmpty {
                 HStack {
@@ -299,9 +308,10 @@ struct IslandView: View {
         }
         .frame(height: QuotaPresentation.height(windows.count))
     }
-    /// `nil` is the Codex / API lane; the rest are subscription lanes.
-    private func compactItem(_ lane: PlanLane?) -> some View {
-        compactQuota(ServiceStyle(laneID: lane?.id), title: lane?.title ?? model.source.title,
+    /// The Codex / API lane, or the subscription lane with this id.
+    private func compactItem(_ id: String) -> some View {
+        let lane = model.planLanes.first { $0.id == id }
+        return compactQuota(ServiceStyle(laneID: lane?.id), title: lane?.title ?? model.source.title,
                      quota: lane.map(\.primary) ?? model.primary, stale: lane?.stale ?? model.isStale,
                      loading: lane?.loading ?? (model.refreshing && model.displayedSnapshot == nil))
     }

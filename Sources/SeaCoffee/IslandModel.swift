@@ -87,6 +87,8 @@ final class IslandModel: ObservableObject {
     @Published var hoverEnabled: Bool
     /// Agents whose local session files are followed; all by default.
     @Published private(set) var watchedAgents: Set<Agent>
+    /// Accounts left out of the collapsed notch; everything shows by default.
+    @Published private(set) var notchHidden: Set<String>
     /// Agents that did not exist when `watchedAgents` was first saved.
     private static let addedAgents: [(version: Int, agent: Agent)] = [(1, .dsh), (2, .antigravity)]
     var openSettings: (() -> Void)?
@@ -123,7 +125,7 @@ final class IslandModel: ObservableObject {
     }
     var sessionPath: String { SeaCoffeePreferences.shared.string(forKey: "sessionPath") ?? "~/.codex/sessions" }
     // Four quotas fold into a 2×2 grid, which needs a wider right wing.
-    var compactWidth: CGFloat { max(290, notchWidth + (planLanes.count >= 3 ? 250 : 180)) }
+    var compactWidth: CGFloat { max(290, notchWidth + (notchLaneIDs.count >= 4 ? 250 : 180)) }
     var headerHeight: CGFloat { hasNotch ? max(24, notchHeight) : 32 }
     var completionWidth: CGFloat { hasNotch ? notchWidth : 180 }
     var islandWidth: CGFloat { completion != nil ? completionWidth : expanded ? max(360, compactWidth) : compactWidth }
@@ -199,6 +201,16 @@ final class IslandModel: ObservableObject {
         }
         return lanes
     }
+    /// The Codex / API row's id in the notch selection; subscription lanes use their own ids.
+    static let codexLaneID = "CX"
+    /// Accounts ticked in the expanded panel, in display order: only these show in the collapsed notch.
+    var notchLaneIDs: [String] { ([Self.codexLaneID] + planLanes.map(\.id)).filter(showsInNotch) }
+    func showsInNotch(_ id: String) -> Bool { demo || !notchHidden.contains(id) }
+    func setShowsInNotch(_ id: String, _ on: Bool) {
+        if on { notchHidden.remove(id) } else { notchHidden.insert(id) }
+        SeaCoffeePreferences.shared.set(notchHidden.sorted(), forKey: "notchHiddenLanes")
+        geometryChanged?()
+    }
     var clineIsStale: Bool { quotaIsStale(clineSnapshot, floor: 180) }
     var primary: Quota? { displayedSnapshot?.quotas.first }
     var isStale: Bool { quotaIsStale(snapshot, floor: 180) }
@@ -268,6 +280,7 @@ final class IslandModel: ObservableObject {
         reducedMotion = defaults.bool(forKey: "reducedMotion")
         refreshMinutes = Self.refreshChoices.contains(defaults.integer(forKey: "quotaRefreshMinutes")) ? defaults.integer(forKey: "quotaRefreshMinutes") : 5
         hoverEnabled = defaults.object(forKey: "hoverEnabled") as? Bool ?? true
+        notchHidden = Set(defaults.stringArray(forKey: "notchHiddenLanes") ?? [])
         let storedAgents = defaults.stringArray(forKey: "watchedAgents")
         watchedAgents = storedAgents.map { Set($0.compactMap(Agent.init(rawValue:))) } ?? Set(Agent.allCases)
         // A saved list predates agents added later; turn those on once instead of leaving them off.

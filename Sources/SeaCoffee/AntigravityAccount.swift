@@ -100,7 +100,7 @@ final class AntigravityAccount: ObservableObject {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("SeaCoffee", forHTTPHeaderField: "User-Agent")
         let (data, response) = try await session.data(for: request)
-        try AntigravityProtocol.validate(status: (response as? HTTPURLResponse)?.statusCode ?? 0)
+        try AntigravityProtocol.validate(status: (response as? HTTPURLResponse)?.statusCode ?? 0, body: data)
         return data
     }
 }

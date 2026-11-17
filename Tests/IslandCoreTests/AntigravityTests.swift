@@ -57,7 +57,10 @@ final class AntigravityTests {
         expectEqual(String(decoding: AntigravityProtocol.modelsBody(project: nil), as: UTF8.self), "{}")
         expectNoThrow(try AntigravityProtocol.validate(status: 200))
         expectAntigravityError(.signedOut, try AntigravityProtocol.validate(status: 401))
-        expectAntigravityError(.http(429), try AntigravityProtocol.validate(status: 429))
+        expectAntigravityError(.http(429, nil), try AntigravityProtocol.validate(status: 429))
+        let denied = data(#"{"error":{"code":403,"message":"Permission denied on resource project sample.","status":"PERMISSION_DENIED"}}"#)
+        expectAntigravityError(.http(403, "PERMISSION_DENIED · Permission denied on resource project sample."), try AntigravityProtocol.validate(status: 403, body: denied))
+        expectEqual(AntigravityError.http(403, "PERMISSION_DENIED").errorDescription, "Antigravity 请求失败（HTTP 403：PERMISSION_DENIED）。")
     }
 
     /// Antigravity's own table, trimmed to the columns Sea Coffee selects plus the title it must not need.
