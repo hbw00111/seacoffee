@@ -1,9 +1,9 @@
 import Foundation
 import IslandCore
 
-/// Reads Antigravity's login (shared by the `agy` CLI and the desktop app) from its Keychain
-/// item. Nothing is written back and Antigravity is never started: its hourly token is renewed
-/// by Antigravity itself while it runs, which is also the only time the quota moves.
+/// Asks the running Antigravity desktop app for its quota over loopback, as CodexBar does.
+/// Sea Coffee holds no Antigravity login, sends nothing to Google and never starts Antigravity:
+/// with the app closed the last numbers stay, which is also when the quota cannot move.
 @MainActor
 final class AntigravityAccount: ObservableObject {
     @Published private(set) var busy = false
@@ -15,7 +15,6 @@ final class AntigravityAccount: ObservableObject {
     var onStatus: ((String) -> Void)?
     var onUsage: ((UsageSnapshot) -> Void)?
     var onDisconnect: (() -> Void)?
-    private var project: String?
     private var lastAttempt = Date.distantPast
     private var task: Task<Void, Never>?
     private let minimumInterval: TimeInterval = 120
@@ -23,7 +22,7 @@ final class AntigravityAccount: ObservableObject {
         let config = URLSessionConfiguration.ephemeral
         config.urlCache = nil
         config.httpCookieStorage = nil
-        return URLSession(configuration: config, delegate: NoRedirects(), delegateQueue: nil)
+        return URLSession(configuration: config, delegate: LoopbackTrust(), delegateQueue: nil)
     }()
 
     init(defaults: UserDefaults = SeaCoffeePreferences.shared) {
@@ -38,10 +37,10 @@ final class AntigravityAccount: ObservableObject {
 
     func disconnect() {
         task?.cancel()
-        enabled = false; plan = nil; email = nil; project = nil
+        enabled = false; plan = nil; email = nil
         SeaCoffeePreferences.shared.set(false, forKey: "antigravityEnabled")
         onDisconnect?()
-        onStatus?("已停止读取 Antigravity 登录")
+        onStatus?("已停止读取 Antigravity 额度")
     }
 
     func refresh(force: Bool = false) {
@@ -52,19 +51,16 @@ final class AntigravityAccount: ObservableObject {
         task = Task {
             defer { busy = false; task = nil }
             do {
-                let credentials = try await Task.detached(priority: .userInitiated) { try Self.readLogin() }.value
-                try Task.checkCancellation()
-                guard !credentials.isExpired else { throw AntigravityError.expired }
-                email = credentials.email
-                // The project and tier are optional: the models request also answers without them.
-                if project == nil, let data = try? await post(AntigravityProtocol.loadURL, AntigravityProtocol.loadBody, credentials, timeout: 10) {
-                    let account = AntigravityProtocol.account(data)
-                    project = account.project; plan = account.plan ?? plan
-                }
-                let body = AntigravityProtocol.modelsBody(project: project)
-                let snapshot = try AntigravityProtocol.usage(try await post(AntigravityProtocol.modelsURL, body, credentials))
+                let hubs = await Task.detached(priority: .userInitiated) { Self.runningHubs() }.value
+                guard !hubs.isEmpty else { throw AntigravityError.notRunning }
+                let (snapshot, endpoint, hub) = try await fetchUsage(hubs)
                 try Task.checkCancellation()
                 onUsage?(snapshot)
+                // The account and plan are optional enrichment; they must not hide usage we already have.
+                if let data = try? await post(endpoint, AntigravityProtocol.statusMethod, AntigravityProtocol.statusBody, hub, timeout: 3) {
+                    let identity = AntigravityProtocol.identity(data)
+                    email = identity.email ?? email; plan = identity.plan ?? plan
+                }
                 onStatus?("已连接 Antigravity\(plan.map { " · \($0)" } ?? "")")
                 lastSucceeded = true
             } catch is CancellationError {
@@ -77,30 +73,58 @@ final class AntigravityAccount: ObservableObject {
 
     func stop() { task?.cancel() }
 
-    nonisolated private static func readLogin() throws -> AntigravityCredentials {
-        // Antigravity writes its item through /usr/bin/security, which the item therefore trusts:
-        // reading through it needs no grant and keeps working after Sea Coffee is rebuilt.
-        if let data = SecureStore.readViaSecurityTool(service: AntigravityProtocol.keychainService,
-                                                      account: AntigravityProtocol.keychainAccount) {
-            return try AntigravityCredentials.parse(data)
-        }
-        // Without a usable Keychain, Antigravity falls back to a file of the same shape.
-        let file = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".gemini/jetski-standalone-oauth-token")
-        guard let data = try? Data(contentsOf: file) else { throw AntigravityError.missingCredentials }
-        return try AntigravityCredentials.parse(data)
+    /// Antigravity's own discovery files, kept only for processes that are still alive.
+    nonisolated private static func runningHubs() -> [AntigravityHub] {
+        let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".gemini/antigravity/daemon")
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        return names.filter { $0.hasSuffix(".json") }.sorted()
+            .compactMap { try? Data(contentsOf: folder.appendingPathComponent($0)) }
+            .compactMap(AntigravityHub.parse)
+            // Signal 0 only asks whether the process exists; a crashed app leaves its file behind.
+            .filter { kill($0.pid, 0) == 0 }
     }
 
-    private func post(_ url: URL, _ body: Data, _ credentials: AntigravityCredentials, timeout: TimeInterval = 20) async throws -> Data {
-        var request = URLRequest(url: url)
+    /// The first endpoint that answers; the last refusal is the one reported.
+    private func fetchUsage(_ hubs: [AntigravityHub]) async throws -> (UsageSnapshot, URL, AntigravityHub) {
+        var failure: Error = AntigravityError.notRunning
+        for hub in hubs {
+            for endpoint in hub.endpoints {
+                do {
+                    let data = try await post(endpoint, AntigravityProtocol.summaryMethod, AntigravityProtocol.summaryBody, hub)
+                    return (try AntigravityProtocol.usage(data), endpoint, hub)
+                } catch is CancellationError { throw CancellationError()
+                } catch { failure = error }
+            }
+        }
+        throw failure
+    }
+
+    private func post(_ endpoint: URL, _ method: String, _ body: Data, _ hub: AntigravityHub, timeout: TimeInterval = 8) async throws -> Data {
+        var request = URLRequest(url: endpoint.appendingPathComponent(method))
         request.httpMethod = "POST"
         request.httpBody = body
         request.timeoutInterval = timeout
-        request.setValue("Bearer \(credentials.accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("SeaCoffee", forHTTPHeaderField: "User-Agent")
+        request.setValue("1", forHTTPHeaderField: "Connect-Protocol-Version")
+        request.setValue(hub.csrfToken, forHTTPHeaderField: AntigravityProtocol.csrfHeader)
         let (data, response) = try await session.data(for: request)
         try AntigravityProtocol.validate(status: (response as? HTTPURLResponse)?.statusCode ?? 0, body: data)
         return data
+    }
+}
+
+/// Antigravity's local server presents a self-signed certificate. It is accepted for 127.0.0.1
+/// only; every other host keeps the system's checks, and redirects are refused.
+private final class LoopbackTrust: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge,
+                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        let space = challenge.protectionSpace
+        guard space.authenticationMethod == NSURLAuthenticationMethodServerTrust, space.host == "127.0.0.1",
+              let trust = space.serverTrust else { return completionHandler(.performDefaultHandling, nil) }
+        completionHandler(.useCredential, URLCredential(trust: trust))
+    }
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
     }
 }

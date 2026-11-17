@@ -184,7 +184,8 @@ final class IslandModel: ObservableObject {
     // Claude polls every two minutes, so allow one missed refresh before dimming.
     var claudeIsStale: Bool { quotaIsStale(claudeSnapshot, floor: 300) }
     var displayedAntigravitySnapshot: UsageSnapshot? {
-        demo ? UsageSnapshot(quotas: [Quota(id: "antigravity-Gemini 4 Hydrogen", label: "Gemini 4 Hydrogen", remaining: 90, limit: 100, monetary: false, resetsAt: Date().addingTimeInterval(14400))]) : antigravitySnapshot
+        demo ? UsageSnapshot(quotas: [Quota(id: "antigravity-gemini-5h", label: "Gemini 5 小时", remaining: 90, limit: 100, monetary: false, resetsAt: Date().addingTimeInterval(14400)),
+            Quota(id: "antigravity-3p-weekly", label: "Claude/GPT 每周", remaining: 76, limit: 100, monetary: false, resetsAt: Date().addingTimeInterval(432000))]) : antigravitySnapshot
     }
     var showsAntigravity: Bool { demo || antigravityAccount.enabled || antigravitySnapshot != nil }
     var antigravityIsStale: Bool { quotaIsStale(antigravitySnapshot, floor: 300) }

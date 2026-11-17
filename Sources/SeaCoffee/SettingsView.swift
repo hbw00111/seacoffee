@@ -226,7 +226,7 @@ struct SettingsView: View {
                 statusRow { Text(model.claudeMessage).multilineTextAlignment(.trailing).textSelection(.enabled) }
                 SettingsUsageDetails(usage: model.claudeSnapshot, loading: model.claudeAccount.busy, staleAfter: model.staleAfter(300))
             }.id("claude")
-            GlassSection(title: "Antigravity", subtitle: "使用本机 Antigravity（agy）登录", icon: ServiceStyle.antigravity.icon, tint: ServiceStyle.antigravity.tint) {
+            GlassSection(title: "Antigravity", subtitle: "读取本机 Antigravity 应用的额度", icon: ServiceStyle.antigravity.icon, tint: ServiceStyle.antigravity.tint) {
                 AntigravityAccountSettings(account: model.antigravityAccount)
                 GlassDivider()
                 statusRow { Text(model.antigravityMessage).multilineTextAlignment(.trailing).textSelection(.enabled) }
@@ -757,7 +757,7 @@ private struct AntigravityAccountSettings: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("显示 Antigravity 各模型的剩余额度").font(.system(size: 12.5, weight: .medium))
+                    Text("显示 Gemini、Claude/GPT 的 5 小时与每周额度").font(.system(size: 12.5, weight: .medium))
                     if let detail = [account.plan, account.email].compactMap({ $0 }).joined(separator: " · ").nilIfEmpty {
                         Text(detail).font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.dim).textSelection(.enabled)
                     }
@@ -771,9 +771,9 @@ private struct AntigravityAccountSettings: View {
 
                 }
             }
-            Text("先在 agy 或 Antigravity 应用中登录，再连接到这里。登录只读不写；令牌过期时保留上次额度，下次使用 Antigravity 时自动恢复。")
+            Text("额度直接向本机运行中的 Antigravity 应用读取，不需要登录信息，也不联网。应用没开时保留上次额度，打开后自动恢复。")
                 .font(.system(size: 11)).foregroundStyle(Palette.dim).fixedSize(horizontal: false, vertical: true)
-                .help("令牌仅保存在内存，读取自钥匙串中 Antigravity 自己的登录项；后台从不启动 Antigravity。同一模型的不同推理强度合并为一行。")
+                .help("只访问 127.0.0.1 上 Antigravity 自己的本地服务；后台从不启动 Antigravity。agy 命令行与应用共用同一份额度。")
             HStack(spacing: 8) {
                 Button(account.enabled ? "立即刷新" : "连接 Antigravity") { pending = true; account.connect() }
                     .buttonStyle(GlassButtonStyle(prominent: account.enabled ? nil : Palette.accentFill,

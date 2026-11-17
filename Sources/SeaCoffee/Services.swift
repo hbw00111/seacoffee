@@ -108,8 +108,8 @@ enum SecureStore {
     /// Reads a generic password through Apple's `security` tool. Items that another CLI created
     /// with that tool (Claude Code does) list it as trusted, so this never prompts and, unlike our
     /// own cdhash-bound grant, survives rebuilds. Returns nil on any failure or after 5 seconds.
-    static func readViaSecurityTool(service: String, account: String? = nil) -> Data? {
-        guard let data = runSecurityTool(["find-generic-password", "-s", service] + (account.map { ["-a", $0] } ?? []) + ["-w"]) else { return nil }
+    static func readViaSecurityTool(service: String) -> Data? {
+        guard let data = runSecurityTool(["find-generic-password", "-s", service, "-w"]) else { return nil }
         let trimmed = data.prefix { $0 != 10 }
         return trimmed.isEmpty ? nil : Data(trimmed)
     }

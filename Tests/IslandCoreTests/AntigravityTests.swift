@@ -5,62 +5,56 @@ import SQLite3
 final class AntigravityTests {
     private func data(_ value: String) -> Data { Data(value.utf8) }
 
-    func credentials() throws {
-        let json = #"{"token":{"access_token":"ya29.sample","token_type":"Bearer","refresh_token":"1//sample","expiry":"2026-11-16T21:41:33.665511+08:00","expires_in":"3599"},"auth_method":"consumer","id_token_email":"a@example.com"}"#
-        // go-keyring stores the JSON base64-wrapped; `security -w` returns that text.
-        let wrapped = try AntigravityCredentials.parse(data("go-keyring-base64:" + data(json).base64EncodedString() + "\n"))
-        expectEqual(wrapped.accessToken, "ya29.sample")
-        expectEqual(wrapped.email, "a@example.com")
-        expectEqual(wrapped.expiresAt, UsageDecoder.date("2026-11-16T13:41:33.665511Z"))
-        expectEqual(try AntigravityCredentials.parse(data(json)), wrapped, "the plain file form parses the same")
-        expectEqual(try AntigravityCredentials.parse(data(#"{"token":{"access_token":"a","expiry":"2020-01-01T00:00:00Z"}}"#)).isExpired, true)
-        expectEqual(try AntigravityCredentials.parse(data(#"{"token":{"access_token":"a"}}"#)).isExpired, false)
-        expectAntigravityError(.missingCredentials, try AntigravityCredentials.parse(data(#"{"token":{"access_token":""}}"#)))
-        expectAntigravityError(.invalidResponse, try AntigravityCredentials.parse(data("go-keyring-base64:%%%")))
-        expectAntigravityError(.invalidResponse, try AntigravityCredentials.parse(data("[]")))
+    func hubDiscovery() {
+        let hub = AntigravityHub.parse(data(#"{"pid":1858,"httpsPort":49800,"httpPort":49801,"lsVersion":"2.32.1","csrfToken":"sample-token"}"#))
+        expectEqual(hub?.pid, 1858)
+        expectEqual(hub?.csrfToken, "sample-token")
+        expectEqual(hub?.endpoints.map(\.absoluteString) ?? [], [
+            "https://127.0.0.1:49800/exa.language_server_pb.LanguageServerService/",
+            "http://127.0.0.1:49801/exa.language_server_pb.LanguageServerService/"])
+        expectEqual(AntigravityHub.parse(data(#"{"pid":7,"httpPort":49801,"csrfToken":"t"}"#))?.endpoints.count, 1)
+        for bad in [#"{"pid":7,"httpPort":49801}"#, #"{"pid":7,"csrfToken":"t"}"#, #"{"pid":0,"httpPort":1,"csrfToken":"t"}"#,
+                    #"{"pid":7,"httpPort":70000,"csrfToken":"t"}"#, "[]"] {
+            expectNil(AntigravityHub.parse(data(bad)))
+        }
     }
 
-    func modelQuotas() throws {
+    func quotaSummary() throws {
+        // The shape the desktop app's local server returned on 2026-11-17, values changed.
         let usage = try AntigravityProtocol.usage(data(#"""
-            {"models":{
-              "gemini-4-hydrogen-medium":{"displayName":"Gemini 4 Hydrogen (Medium)","quotaInfo":{"remainingFraction":0.6,"resetTime":"2026-11-16T15:00:00Z"}},
-              "gemini-4-hydrogen-high":{"displayName":"Gemini 4 Hydrogen (High)","quotaInfo":{"remainingFraction":0.4,"resetTime":"2026-11-16T15:00:00Z"}},
-              "claude-opus-5-5-high":{"displayName":"Claude Opus 5.5 (High)","quotaInfo":{"resetTime":"2026-11-17T02:00:00Z"}},
-              "gemini-3.8-flash-low":{"displayName":"Gemini 3.8 Flash","quotaInfo":{"remainingFraction":1}},
-              "tab_flash_lite":{"quotaInfo":{"remainingFraction":0.1}},
-              "no-quota":{"displayName":"No Quota"},
-              "empty-quota":{"displayName":"Empty Quota","quotaInfo":{}}
-            }}
+            {"response":{"description":"…","groups":[
+              {"displayName":"Gemini Models","buckets":[
+                {"bucketId":"gemini-weekly","displayName":"Weekly Limit Remaining","window":"weekly","remainingFraction":0.808,"resetTime":"2026-11-21T00:55:05Z"},
+                {"bucketId":"gemini-5h","displayName":"Five Hour Limit Remaining","window":"5h","remainingFraction":0.96,"resetTime":"2026-11-17T04:22:48Z"}]},
+              {"displayName":"Claude and GPT models","buckets":[
+                {"bucketId":"3p-weekly","displayName":"Weekly Limit Remaining","window":"weekly","remainingFraction":0.25,"resetTime":"2026-11-22T14:55:31Z"},
+                {"bucketId":"3p-5h","window":"5h","remainingFraction":1},
+                {"bucketId":"3p-unknown","window":"weekly","resetTime":"2026-11-22T14:55:31Z"},
+                {"bucketId":"3p-off","window":"daily","remainingFraction":0.5,"disabled":true},
+                {"bucketId":"3p-new","displayName":"Burst","window":"burst","remainingFraction":1.4}]}]}}
             """#))
-        // Effort variants fold into their tightest value; the tightest model comes first.
-        expectEqual(usage.quotas.map(\.label), ["Claude Opus 5.5", "Gemini 4 Hydrogen", "Gemini 3.8 Flash"])
-        expectEqual(usage.quotas.map(\.percent), [0, 40, 100])
-        expectEqual(usage.quotas.map(\.id), ["antigravity-Claude Opus 5.5", "antigravity-Gemini 4 Hydrogen", "antigravity-Gemini 3.8 Flash"])
-        expectEqual(usage.quotas.first?.resetsAt, UsageDecoder.date("2026-11-17T02:00:00Z"))
+        // Tightest first; unknown and disabled buckets are left out; an unknown window keeps its own name.
+        expectEqual(usage.quotas.map(\.label), ["Claude/GPT 每周", "Gemini 每周", "Gemini 5 小时", "Claude/GPT 5 小时", "Claude/GPT Burst"])
+        expectEqual(usage.quotas.map(\.percent), [25, 81, 96, 100, 100])
+        expectEqual(usage.quotas.first?.id, "antigravity-3p-weekly")
+        expectEqual(usage.quotas.first?.resetsAt, UsageDecoder.date("2026-11-22T14:55:31Z"))
         expectEqual(usage.quotas.first?.monetary, false)
-        expectNil(usage.quotas.last?.resetsAt)
-        expectAntigravityError(.usageUnavailable, try AntigravityProtocol.usage(data(#"{"models":{"a":{"displayName":"A"}}}"#)))
-        expectAntigravityError(.invalidResponse, try AntigravityProtocol.usage(data(#"{}"#)))
+        expectAntigravityError(.usageUnavailable, try AntigravityProtocol.usage(data(#"{"response":{"groups":[{"displayName":"Gemini Models","buckets":[{"bucketId":"a"}]}]}}"#)))
+        expectAntigravityError(.invalidResponse, try AntigravityProtocol.usage(data(#"{"response":{}}"#)))
         expectAntigravityError(.invalidResponse, try AntigravityProtocol.usage(data("nope")))
     }
 
-    func accountAndStatus() {
-        let account = AntigravityProtocol.account(data(#"{"cloudaicompanionProject":"sample-project","currentTier":{"id":"free-tier","name":"Free"},"paidTier":{"name":"Google AI Pro"}}"#))
-        expectEqual(account.project, "sample-project")
-        expectEqual(account.plan, "Google AI Pro")
-        let nested = AntigravityProtocol.account(data(#"{"cloudaicompanionProject":{"id":"nested"},"currentTier":{"name":"Free"}}"#))
-        expectEqual(nested.project, "nested")
-        expectEqual(nested.plan, "Free")
-        expectNil(AntigravityProtocol.account(data("{}")).project)
-        expectNil(AntigravityProtocol.account(data("{}")).plan)
-        expectEqual(String(decoding: AntigravityProtocol.modelsBody(project: "p"), as: UTF8.self), #"{"project":"p"}"#)
-        expectEqual(String(decoding: AntigravityProtocol.modelsBody(project: nil), as: UTF8.self), "{}")
+    func identityAndStatus() {
+        let identity = AntigravityProtocol.identity(data(#"{"userStatus":{"email":"a@example.com","userTier":{"id":"g1-ultra-tier","name":"Google AI Ultra"},"planStatus":{"planInfo":{"planName":"Pro"}}}}"#))
+        expectEqual(identity.email, "a@example.com")
+        expectEqual(identity.plan, "Google AI Ultra")
+        expectEqual(AntigravityProtocol.identity(data(#"{"userStatus":{"planStatus":{"planInfo":{"planName":"Pro"}}}}"#)).plan, "Pro")
+        expectNil(AntigravityProtocol.identity(data("{}")).email)
         expectNoThrow(try AntigravityProtocol.validate(status: 200))
-        expectAntigravityError(.signedOut, try AntigravityProtocol.validate(status: 401))
-        expectAntigravityError(.http(429, nil), try AntigravityProtocol.validate(status: 429))
-        let denied = data(#"{"error":{"code":403,"message":"Permission denied on resource project sample.","status":"PERMISSION_DENIED"}}"#)
-        expectAntigravityError(.http(403, "PERMISSION_DENIED · Permission denied on resource project sample."), try AntigravityProtocol.validate(status: 403, body: denied))
-        expectEqual(AntigravityError.http(403, "PERMISSION_DENIED").errorDescription, "Antigravity 请求失败（HTTP 403：PERMISSION_DENIED）。")
+        expectAntigravityError(.http(500, nil), try AntigravityProtocol.validate(status: 500))
+        let refused = data(#"{"code":"unauthenticated","message":"unauthenticated: missing CSRF token"}"#)
+        expectAntigravityError(.http(401, "unauthenticated · unauthenticated: missing CSRF token"), try AntigravityProtocol.validate(status: 401, body: refused))
+        expectEqual(AntigravityError.http(401, "unauthenticated").errorDescription, "Antigravity 请求失败（HTTP 401：unauthenticated）。")
     }
 
     /// Antigravity's own table, trimmed to the columns Sea Coffee selects plus the title it must not need.

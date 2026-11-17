@@ -27,7 +27,7 @@ Native SwiftUI + AppKit. No Electron, no third-party runtime dependencies.
   | Codex official | 5-hour / weekly limits | Browser sign-in through `codex app-server` |
   | Cline Pass | 5-hour / weekly / monthly | API key, or device-code sign-in |
   | Claude | 5-hour / weekly / Sonnet and Opus weekly | Reuses your Claude Code login |
-  | Antigravity | Remaining quota per model (tightest first) | Reuses your local `agy` / Antigravity login |
+  | Antigravity | 5-hour / weekly for Gemini and for Claude/GPT | Read from the Antigravity app running on this Mac |
 
 - **Privacy first**: only event types, timestamps, project folder names, and model names are read. Conversation content is never stored or uploaded. Logins borrowed from other tools are read-only.
 - **You choose what the notch shows**: each account in the expanded panel has a checkmark. Ticked accounts appear in the collapsed notch; the rest only show when expanded.
@@ -71,7 +71,7 @@ Open **Settings** and connect the sources you use:
 - **Codex official**: switch the connection mode and click "连接官方账号" (Connect official account). A separate Codex home directory is used, so your existing Codex login is untouched.
 - **Cline Pass**: create an API key at [app.cline.bot](https://app.cline.bot) and paste it in, or sign in with a device code in your browser.
 - **Claude**: sign in with `claude` in a terminal first, then click "连接 Claude Code" (Connect Claude Code).
-- **Antigravity**: sign in with `agy` or the Antigravity app first, then click "连接 Antigravity" (Connect Antigravity). When the token expires the last quota stays on screen and recovers the next time you use Antigravity.
+- **Antigravity**: keep the Antigravity app open, then click "连接 Antigravity" (Connect Antigravity). With the app closed the last quota stays on screen and recovers when it is opened again.
 - **Task status**: all six agents are followed by default; each can be turned off. When Pi uses Cline Pass, the completion label names the channel and the usage counts toward the Cline quota.
 
 To start Sea Coffee when you log in, turn on "开机自启" (Launch at login) under "外观与交互" (Appearance and interaction) in Settings; it takes effect immediately.
@@ -81,9 +81,10 @@ Hover over the top of the screen to expand; move away to collapse. "固定展开
 ## Security and privacy
 
 - Credentials that Sea Coffee saves itself (Sub2API key, Cline login or key) live in `~/Library/Application Support/SeaIsland/credentials.json` with `0600` permissions and atomic writes. A file is used instead of the Keychain because, without an Apple Developer ID signature, Keychain grants are tied to each build's binary hash and are lost on every rebuild.
-- Claude and Antigravity tokens are read-only, kept in memory, and never refreshed or written back, so the original tools stay signed in. When a token expires, only the original tool renews it: Antigravity is never started, and its quota recovers the next time you use it; for Claude, Sea Coffee never starts Claude Code in the background: it keeps the last quota and says the login expired until you next use Claude Code, which renews itself. Only when you click "重新读取" (Re-read) does it open Claude Code's `/usage` screen once in a dedicated folder and read the quota from it (no tools, no hooks, no prompt sent, transcript removed afterwards).
+- Antigravity needs no login and no network: its quota is read only from the Antigravity app running on this Mac (`127.0.0.1`), which Sea Coffee never starts.
+- Claude tokens are read-only, kept in memory, and never refreshed or written back, so Claude Code stays signed in. When a token expires, only the original tool renews it: Sea Coffee never starts Claude Code in the background: it keeps the last quota and says the login expired until you next use Claude Code, which renews itself. Only when you click "重新读取" (Re-read) does it open Claude Code's `/usage` screen once in a dedicated folder and read the quota from it (no tools, no hooks, no prompt sent, transcript removed afterwards).
 - No request follows redirects, and credentials are never written to logs or UserDefaults.
-- The Claude, Antigravity, and Cline quota endpoints are the ones their websites or CLIs use, not stable public APIs. If a format changes, Sea Coffee keeps the last value and shows a notice rather than a wrong number.
+- The Claude and Cline quota endpoints are the ones their websites or CLIs use, and Antigravity's is the app's own local one; none is a stable public API. If a format changes, Sea Coffee keeps the last value and shows a notice rather than a wrong number.
 
 Data sources, protocols, and implementation details are documented (in Chinese) in [docs/how-it-works.md](docs/how-it-works.md); current status, roadmap, and known issues are in [docs/progress.md](docs/progress.md).
 
