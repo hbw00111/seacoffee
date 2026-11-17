@@ -164,6 +164,16 @@ struct SettingsView: View {
                 accountShortcut("antigravity", title: "Antigravity", style: .antigravity, usage: model.antigravitySnapshot,
                                 connected: model.antigravityAccount.enabled, loading: model.antigravityAccount.busy, jump: jump)
             }
+            // The same choice as the checkmarks in the island's expanded panel.
+            HStack(spacing: 14) {
+                Text("收起时在刘海显示").font(.system(size: 11.5, weight: .medium))
+                ForEach([(IslandModel.codexLaneID, "Codex"), ("CL", "Cline"), ("CC", "Claude"), ("AG", "Antigravity")], id: \.0) { id, title in
+                    Toggle(title, isOn: Binding(get: { model.showsInNotch(id) }, set: { model.setShowsInNotch(id, $0) }))
+                        .toggleStyle(.checkbox).font(.system(size: 11.5))
+                }
+                Spacer(minLength: 0)
+            }
+            .help("取消勾选的账号不再出现在收起的刘海上，展开面板和这里仍然能看到。")
         }
     }
 
