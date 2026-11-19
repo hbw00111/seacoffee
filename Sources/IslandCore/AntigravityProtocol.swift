@@ -55,25 +55,29 @@ public enum AntigravityProtocol {
     }
 
     /// `RetrieveUserQuotaSummary`: model groups (Gemini; Claude and GPT), each with a five-hour and a
-    /// weekly bucket. The tightest bucket comes first. A bucket without `remainingFraction` is
+    /// weekly bucket. Weekly buckets come first, tightest first, so the notch shows the weekly
+    /// limit; the five-hour and other buckets follow. A bucket without `remainingFraction` is
     /// unknown and left out, never shown as empty.
     public static func usage(_ data: Data) throws -> UsageSnapshot {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let groups = (root["response"] as? [String: Any])?["groups"] as? [[String: Any]] else { throw AntigravityError.invalidResponse }
-        var quotas: [Quota] = []
+        var quotas: [(weekly: Bool, quota: Quota)] = []
         for group in groups {
             let family = family(group["displayName"] as? String ?? "")
             for bucket in group["buckets"] as? [[String: Any]] ?? [] where bucket["disabled"] as? Bool != true {
                 guard let id = bucket["bucketId"] as? String, !id.isEmpty,
                       let fraction = UsageDecoder.number(bucket["remainingFraction"]) else { continue }
                 let window = window(bucket["window"] as? String) ?? bucket["displayName"] as? String ?? id
-                quotas.append(Quota(id: "antigravity-\(id)", label: [family, window].filter { !$0.isEmpty }.joined(separator: " "),
+                let weekly = (bucket["window"] as? String)?.lowercased() == "weekly"
+                quotas.append((weekly, Quota(id: "antigravity-\(id)", label: [family, window].filter { !$0.isEmpty }.joined(separator: " "),
                                     remaining: min(1, max(0, fraction)) * 100, limit: 100, monetary: false,
-                                    resetsAt: UsageDecoder.date(bucket["resetTime"])))
+                                    resetsAt: UsageDecoder.date(bucket["resetTime"]))))
             }
         }
         guard !quotas.isEmpty else { throw AntigravityError.usageUnavailable }
-        return UsageSnapshot(quotas: quotas.sorted { ($0.fraction, $0.id) < ($1.fraction, $1.id) })
+        return UsageSnapshot(quotas: quotas.sorted {
+            ($0.weekly ? 0 : 1, $0.quota.fraction, $0.quota.id) < ($1.weekly ? 0 : 1, $1.quota.fraction, $1.quota.id)
+        }.map(\.quota))
     }
 
     /// `GetUserStatus`: the signed-in account and its plan, shown in Settings only.

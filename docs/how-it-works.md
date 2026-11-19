@@ -73,7 +73,7 @@ DSH Tokens 计入总量、缓存命中率与供应商 / 模型汇总，会话数
 
 - 不读登录、不联网：额度直接向本机运行中的 Antigravity 桌面应用读取，做法参考 CodexBar 的本地探测。应用启动后会在 `~/.gemini/antigravity/daemon/hub_<端口>.json` 写下自己本地服务的 `pid`、`httpsPort`、`httpPort` 与 `csrfToken`；Sea Coffee 读这个文件，用 `kill(pid, 0)` 确认进程还在（应用崩溃会留下旧文件）。
 - 请求 `POST https://127.0.0.1:<httpsPort>/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary`，正文 `{"forceRefresh":true}`，请求头 `Connect-Protocol-Version: 1` 与 `X-Codeium-Csrf-Token`；HTTPS 不通时改用 `http://127.0.0.1:<httpPort>`。本地服务用自签名证书，只对 `127.0.0.1` 接受，其他主机仍走系统校验，拒绝重定向。
-- 返回 `response.groups[]`（目前是 Gemini、Claude 与 GPT 两组），每组的 `buckets[]` 带 `bucketId`、`window`（`5h` / `weekly`）、`remainingFraction`（0–1）与 `resetTime`。每个桶一行，标签是“组名 + 周期”（如 `Gemini 5 小时`、`Claude/GPT 每周`），按剩余从少到多排序，所以岛上显示最紧的两行，设置里列出全部。没有 `remainingFraction` 或标了 `disabled` 的桶视为未知，不显示。
+- 返回 `response.groups[]`（目前是 Gemini、Claude 与 GPT 两组），每组的 `buckets[]` 带 `bucketId`、`window`（`5h` / `weekly`）、`remainingFraction`（0–1）与 `resetTime`。每个桶一行，标签是“组名 + 周期”（如 `Gemini 5 小时`、`Claude/GPT 每周`），每周的桶排在前面（各自按剩余从少到多），所以收起的刘海显示最紧的每周额度；展开面板先列这一行，再列其余桶里最紧的一行（通常是 5 小时），设置里列出全部。没有 `remainingFraction` 或标了 `disabled` 的桶视为未知，不显示。
 - 账号邮箱与套餐名来自同一服务的 `GetUserStatus`（`userStatus.email`、`userStatus.userTier.name`），只在设置里显示，失败不影响额度。
 - Antigravity 应用没开时提示并保留上次额度，从不启动它。`agy` 命令行与应用共用同一份账号额度，但命令行自己的本地服务需要一个拿不到的 CSRF 令牌，所以只开 `agy`、不开应用时读不到额度。每 2 分钟最多查询一次。
 - 没有采用云端接口：最初直接请求 `daily-cloudcode-pa.googleapis.com` 的 `fetchAvailableModels`，真实账号返回 `403 PERMISSION_DENIED`（服务只接受自家客户端）。CodexBar 的云端方案靠冒用客户端标识并自己刷新令牌，这里不做。

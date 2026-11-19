@@ -25,7 +25,7 @@ final class AntigravityTests {
             {"response":{"description":"…","groups":[
               {"displayName":"Gemini Models","buckets":[
                 {"bucketId":"gemini-weekly","displayName":"Weekly Limit Remaining","window":"weekly","remainingFraction":0.808,"resetTime":"2026-11-21T00:55:05Z"},
-                {"bucketId":"gemini-5h","displayName":"Five Hour Limit Remaining","window":"5h","remainingFraction":0.96,"resetTime":"2026-11-17T04:22:48Z"}]},
+                {"bucketId":"gemini-5h","displayName":"Five Hour Limit Remaining","window":"5h","remainingFraction":0.16,"resetTime":"2026-11-17T04:22:48Z"}]},
               {"displayName":"Claude and GPT models","buckets":[
                 {"bucketId":"3p-weekly","displayName":"Weekly Limit Remaining","window":"weekly","remainingFraction":0.25,"resetTime":"2026-11-22T14:55:31Z"},
                 {"bucketId":"3p-5h","window":"5h","remainingFraction":1},
@@ -33,9 +33,9 @@ final class AntigravityTests {
                 {"bucketId":"3p-off","window":"daily","remainingFraction":0.5,"disabled":true},
                 {"bucketId":"3p-new","displayName":"Burst","window":"burst","remainingFraction":1.4}]}]}}
             """#))
-        // Tightest first; unknown and disabled buckets are left out; an unknown window keeps its own name.
+        // Weekly buckets first (the notch shows the first), each group tightest first; unknown and disabled buckets are left out; an unknown window keeps its own name.
         expectEqual(usage.quotas.map(\.label), ["Claude/GPT 每周", "Gemini 每周", "Gemini 5 小时", "Claude/GPT 5 小时", "Claude/GPT Burst"])
-        expectEqual(usage.quotas.map(\.percent), [25, 81, 96, 100, 100])
+        expectEqual(usage.quotas.map(\.percent), [25, 81, 16, 100, 100], "a tighter five-hour bucket still follows the weekly ones")
         expectEqual(usage.quotas.first?.id, "antigravity-3p-weekly")
         expectEqual(usage.quotas.first?.resetsAt, UsageDecoder.date("2026-11-22T14:55:31Z"))
         expectEqual(usage.quotas.first?.monetary, false)
