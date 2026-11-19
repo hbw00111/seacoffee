@@ -25,7 +25,7 @@
   | Codex 官方 | 5 小时 / 每周额度 | 通过 `codex app-server` 浏览器登录 |
   | Cline Pass | 5 小时 / 每周 / 每月 | API Key，或设备码登录 |
   | Claude | 5 小时 / 每周 / Sonnet、Opus 每周 | 复用本机 Claude Code 登录 |
-  | Antigravity | Gemini、Claude/GPT 的 5 小时 / 每周 | 向本机运行中的 Antigravity 应用读取 |
+  | Antigravity | Gemini 的 5 小时 / 每周（收起时显示 5 小时） | 向本机运行中的 Antigravity 应用读取 |
 
 - **隐私优先**：只读取事件类型、时间、项目目录名和模型名，不保存、不上传对话内容；复用其他工具的登录时只读不写。
 - **刘海上显示哪些由你选**：设置的账号概览下方有一行复选框，取消勾选的账号不再出现在刘海上（收起和展开都不显示），只在设置里能看到。

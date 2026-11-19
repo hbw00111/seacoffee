@@ -55,14 +55,15 @@ public enum AntigravityProtocol {
     }
 
     /// `RetrieveUserQuotaSummary`: model groups (Gemini; Claude and GPT), each with a five-hour and a
-    /// weekly bucket. Order: the tightest five-hour bucket (the notch shows it), then the tightest
+    /// weekly bucket. Only Gemini is kept. Order: the tightest five-hour bucket (the notch shows it), then the tightest
     /// weekly one (the expanded panel's second row), then the rest by window and remaining. A
     /// bucket without `remainingFraction` is unknown and left out, never shown as empty.
     public static func usage(_ data: Data) throws -> UsageSnapshot {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let groups = (root["response"] as? [String: Any])?["groups"] as? [[String: Any]] else { throw AntigravityError.invalidResponse }
         var quotas: [(rank: Int, quota: Quota)] = []
-        for group in groups {
+        // Only the Gemini group is shown; the Claude/GPT group is left out by choice.
+        for group in groups where (group["displayName"] as? String ?? "").lowercased().hasPrefix("gemini") {
             let family = family(group["displayName"] as? String ?? "")
             for bucket in group["buckets"] as? [[String: Any]] ?? [] where bucket["disabled"] as? Bool != true {
                 guard let id = bucket["bucketId"] as? String, !id.isEmpty,

@@ -767,7 +767,7 @@ private struct AntigravityAccountSettings: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("显示 Gemini、Claude/GPT 的 5 小时与每周额度").font(.system(size: 12.5, weight: .medium))
+                    Text("显示 Gemini 的 5 小时与每周额度").font(.system(size: 12.5, weight: .medium))
                     if let detail = [account.plan, account.email].compactMap({ $0 }).joined(separator: " · ").nilIfEmpty {
                         Text(detail).font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.dim).textSelection(.enabled)
                     }

@@ -27,7 +27,7 @@ Native SwiftUI + AppKit. No Electron, no third-party runtime dependencies.
   | Codex official | 5-hour / weekly limits | Browser sign-in through `codex app-server` |
   | Cline Pass | 5-hour / weekly / monthly | API key, or device-code sign-in |
   | Claude | 5-hour / weekly / Sonnet and Opus weekly | Reuses your Claude Code login |
-  | Antigravity | 5-hour / weekly for Gemini and for Claude/GPT | Read from the Antigravity app running on this Mac |
+  | Antigravity | Gemini 5-hour / weekly (5-hour when collapsed) | Read from the Antigravity app running on this Mac |
 
 - **Privacy first**: only event types, timestamps, project folder names, and model names are read. Conversation content is never stored or uploaded. Logins borrowed from other tools are read-only.
 - **You choose what the notch shows**: Settings has a row of checkboxes under the account overview. Unticked accounts leave the island, collapsed and expanded, and stay visible in Settings only.

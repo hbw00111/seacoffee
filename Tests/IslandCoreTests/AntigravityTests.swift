@@ -25,21 +25,23 @@ final class AntigravityTests {
             {"response":{"description":"…","groups":[
               {"displayName":"Gemini Models","buckets":[
                 {"bucketId":"gemini-weekly","displayName":"Weekly Limit Remaining","window":"weekly","remainingFraction":0.808,"resetTime":"2026-11-21T00:55:05Z"},
-                {"bucketId":"gemini-5h","displayName":"Five Hour Limit Remaining","window":"5h","remainingFraction":0.16,"resetTime":"2026-11-17T04:22:48Z"}]},
+                {"bucketId":"gemini-5h","displayName":"Five Hour Limit Remaining","window":"5h","remainingFraction":0.96,"resetTime":"2026-11-17T04:22:48Z"},
+                {"bucketId":"gemini-unknown","window":"weekly","resetTime":"2026-11-22T14:55:31Z"},
+                {"bucketId":"gemini-off","window":"daily","remainingFraction":0.5,"disabled":true},
+                {"bucketId":"gemini-new","displayName":"Burst","window":"burst","remainingFraction":1.4}]},
               {"displayName":"Claude and GPT models","buckets":[
                 {"bucketId":"3p-weekly","displayName":"Weekly Limit Remaining","window":"weekly","remainingFraction":0.25,"resetTime":"2026-11-22T14:55:31Z"},
-                {"bucketId":"3p-5h","window":"5h","remainingFraction":1},
-                {"bucketId":"3p-unknown","window":"weekly","resetTime":"2026-11-22T14:55:31Z"},
-                {"bucketId":"3p-off","window":"daily","remainingFraction":0.5,"disabled":true},
-                {"bucketId":"3p-new","displayName":"Burst","window":"burst","remainingFraction":1.4}]}]}}
+                {"bucketId":"3p-5h","window":"5h","remainingFraction":0.1}]}]}}
             """#))
-        // Tightest five-hour first (the notch), tightest weekly second (the panel), then the rest; unknown and disabled buckets are left out; an unknown window keeps its own name.
-        expectEqual(usage.quotas.map(\.label), ["Gemini 5 小时", "Claude/GPT 每周", "Claude/GPT 5 小时", "Gemini 每周", "Claude/GPT Burst"])
-        expectEqual(usage.quotas.map(\.percent), [16, 25, 100, 81, 100], "the weekly row moves up past the other five-hour bucket")
+        // Only Gemini, even when Claude/GPT is tighter. Five-hour first (the notch), weekly second
+        // (the panel), then the rest; unknown and disabled buckets are left out; an unknown window keeps its own name.
+        expectEqual(usage.quotas.map(\.label), ["Gemini 5 小时", "Gemini 每周", "Gemini Burst"])
+        expectEqual(usage.quotas.map(\.percent), [96, 81, 100])
         expectEqual(usage.quotas.first?.id, "antigravity-gemini-5h")
-        expectEqual(usage.quotas[1].resetsAt, UsageDecoder.date("2026-11-22T14:55:31Z"))
+        expectEqual(usage.quotas[1].resetsAt, UsageDecoder.date("2026-11-21T00:55:05Z"))
         expectEqual(usage.quotas.first?.monetary, false)
         expectAntigravityError(.usageUnavailable, try AntigravityProtocol.usage(data(#"{"response":{"groups":[{"displayName":"Gemini Models","buckets":[{"bucketId":"a"}]}]}}"#)))
+        expectAntigravityError(.usageUnavailable, try AntigravityProtocol.usage(data(#"{"response":{"groups":[{"displayName":"Claude and GPT models","buckets":[{"bucketId":"b","window":"5h","remainingFraction":0.5}]}]}}"#)))
         expectAntigravityError(.invalidResponse, try AntigravityProtocol.usage(data(#"{"response":{}}"#)))
         expectAntigravityError(.invalidResponse, try AntigravityProtocol.usage(data("nope")))
     }
