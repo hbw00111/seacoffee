@@ -55,29 +55,33 @@ public enum AntigravityProtocol {
     }
 
     /// `RetrieveUserQuotaSummary`: model groups (Gemini; Claude and GPT), each with a five-hour and a
-    /// weekly bucket. Weekly buckets come first, tightest first, so the notch shows the weekly
-    /// limit; the five-hour and other buckets follow. A bucket without `remainingFraction` is
-    /// unknown and left out, never shown as empty.
+    /// weekly bucket. Order: the tightest five-hour bucket (the notch shows it), then the tightest
+    /// weekly one (the expanded panel's second row), then the rest by window and remaining. A
+    /// bucket without `remainingFraction` is unknown and left out, never shown as empty.
     public static func usage(_ data: Data) throws -> UsageSnapshot {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let groups = (root["response"] as? [String: Any])?["groups"] as? [[String: Any]] else { throw AntigravityError.invalidResponse }
-        var quotas: [(weekly: Bool, quota: Quota)] = []
+        var quotas: [(rank: Int, quota: Quota)] = []
         for group in groups {
             let family = family(group["displayName"] as? String ?? "")
             for bucket in group["buckets"] as? [[String: Any]] ?? [] where bucket["disabled"] as? Bool != true {
                 guard let id = bucket["bucketId"] as? String, !id.isEmpty,
                       let fraction = UsageDecoder.number(bucket["remainingFraction"]) else { continue }
                 let window = window(bucket["window"] as? String) ?? bucket["displayName"] as? String ?? id
-                let weekly = (bucket["window"] as? String)?.lowercased() == "weekly"
-                quotas.append((weekly, Quota(id: "antigravity-\(id)", label: [family, window].filter { !$0.isEmpty }.joined(separator: " "),
+                let rank = ["5h": 0, "weekly": 1][(bucket["window"] as? String)?.lowercased() ?? ""] ?? 2
+                quotas.append((rank, Quota(id: "antigravity-\(id)", label: [family, window].filter { !$0.isEmpty }.joined(separator: " "),
                                     remaining: min(1, max(0, fraction)) * 100, limit: 100, monetary: false,
                                     resetsAt: UsageDecoder.date(bucket["resetTime"]))))
             }
         }
         guard !quotas.isEmpty else { throw AntigravityError.usageUnavailable }
-        return UsageSnapshot(quotas: quotas.sorted {
-            ($0.weekly ? 0 : 1, $0.quota.fraction, $0.quota.id) < ($1.weekly ? 0 : 1, $1.quota.fraction, $1.quota.id)
-        }.map(\.quota))
+        var ordered = quotas.sorted {
+            ($0.rank, $0.quota.fraction, $0.quota.id) < ($1.rank, $1.quota.fraction, $1.quota.id)
+        }
+        if let weekly = ordered.firstIndex(where: { $0.rank == 1 }), weekly > 1 {
+            ordered.insert(ordered.remove(at: weekly), at: 1)
+        }
+        return UsageSnapshot(quotas: ordered.map(\.quota))
     }
 
     /// `GetUserStatus`: the signed-in account and its plan, shown in Settings only.

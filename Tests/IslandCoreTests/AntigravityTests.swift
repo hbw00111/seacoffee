@@ -33,11 +33,11 @@ final class AntigravityTests {
                 {"bucketId":"3p-off","window":"daily","remainingFraction":0.5,"disabled":true},
                 {"bucketId":"3p-new","displayName":"Burst","window":"burst","remainingFraction":1.4}]}]}}
             """#))
-        // Weekly buckets first (the notch shows the first), each group tightest first; unknown and disabled buckets are left out; an unknown window keeps its own name.
-        expectEqual(usage.quotas.map(\.label), ["Claude/GPT 每周", "Gemini 每周", "Gemini 5 小时", "Claude/GPT 5 小时", "Claude/GPT Burst"])
-        expectEqual(usage.quotas.map(\.percent), [25, 81, 16, 100, 100], "a tighter five-hour bucket still follows the weekly ones")
-        expectEqual(usage.quotas.first?.id, "antigravity-3p-weekly")
-        expectEqual(usage.quotas.first?.resetsAt, UsageDecoder.date("2026-11-22T14:55:31Z"))
+        // Tightest five-hour first (the notch), tightest weekly second (the panel), then the rest; unknown and disabled buckets are left out; an unknown window keeps its own name.
+        expectEqual(usage.quotas.map(\.label), ["Gemini 5 小时", "Claude/GPT 每周", "Claude/GPT 5 小时", "Gemini 每周", "Claude/GPT Burst"])
+        expectEqual(usage.quotas.map(\.percent), [16, 25, 100, 81, 100], "the weekly row moves up past the other five-hour bucket")
+        expectEqual(usage.quotas.first?.id, "antigravity-gemini-5h")
+        expectEqual(usage.quotas[1].resetsAt, UsageDecoder.date("2026-11-22T14:55:31Z"))
         expectEqual(usage.quotas.first?.monetary, false)
         expectAntigravityError(.usageUnavailable, try AntigravityProtocol.usage(data(#"{"response":{"groups":[{"displayName":"Gemini Models","buckets":[{"bucketId":"a"}]}]}}"#)))
         expectAntigravityError(.invalidResponse, try AntigravityProtocol.usage(data(#"{"response":{}}"#)))
