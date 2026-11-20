@@ -56,7 +56,7 @@ public struct SessionSource: Sendable {
     func databaseSessions(since: Date) -> [(id: String, apply: (inout SessionState) -> Void)]? {
         if agent == .antigravity {
             return AntigravityStore.conversations(under: root, since: since)?.map { row in
-                (databasePrefix + row.id, { $0.consumeAntigravity(row) })
+                (databasePrefix + row.id, { $0.consumeAntigravity(row, model: { AntigravityStore.model(under: root, conversation: row.id) }) })
             }
         }
         return PiDesktopStore.latestTurns(at: root, since: since)?.map { turn in

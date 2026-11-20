@@ -144,6 +144,75 @@ final class AntigravityTests {
         expectEqual(s.state, .unknown)
     }
 
+    /// Protobuf wire format: a length-delimited field.
+    private func field(_ number: Int, _ payload: [UInt8]) -> [UInt8] {
+        func varint(_ value: Int) -> [UInt8] {
+            var value = value, out: [UInt8] = []
+            while value >= 0x80 { out.append(UInt8(value & 0x7f) | 0x80); value >>= 7 }
+            return out + [UInt8(value)]
+        }
+        return varint(number << 3 | 2) + varint(payload.count) + payload
+    }
+    /// An `executor_metadata` blob: unrelated fields around the run configuration's model.
+    private func executorMetadata(_ model: String) -> Data {
+        let config = [0x08, 0x96, 0x01] + field(2, Array("secret prompt".utf8)) + field(28, Array(model.utf8))
+        let other = field(28, Array("not-this".utf8))
+        return Data([0x09, 1, 2, 3, 4, 5, 6, 7, 8] + field(3, other) + field(10, [0x15, 1, 2, 3, 4] + field(1, config)))
+    }
+    private func makeConversation(_ url: URL, _ blobs: [Data]) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        var db: OpaquePointer?
+        precondition(sqlite3_open(url.path, &db) == SQLITE_OK)
+        defer { sqlite3_close(db) }
+        precondition(sqlite3_exec(db, "CREATE TABLE executor_metadata (idx integer PRIMARY KEY, data blob); CREATE TABLE steps (idx integer, step_payload blob)", nil, nil, nil) == SQLITE_OK)
+        for (index, blob) in blobs.enumerated() {
+            var statement: OpaquePointer?
+            sqlite3_prepare_v2(db, "INSERT INTO executor_metadata VALUES (?1, ?2)", -1, &statement, nil)
+            sqlite3_bind_int(statement, 1, Int32(index))
+            _ = blob.withUnsafeBytes { sqlite3_bind_blob(statement, 2, $0.baseAddress, Int32(blob.count), unsafeBitCast(-1, to: sqlite3_destructor_type.self)) }
+            precondition(sqlite3_step(statement) == SQLITE_DONE)
+            sqlite3_finalize(statement)
+        }
+    }
+
+    func conversationModel() throws {
+        expectEqual(AntigravityStore.model(fromExecutorMetadata: executorMetadata("gemini-4-hydrogen-medium")), "gemini-4-hydrogen-medium")
+        expectNil(AntigravityStore.model(fromExecutorMetadata: Data()))
+        expectNil(AntigravityStore.model(fromExecutorMetadata: Data([0x52, 0x7f, 0x01])))
+        expectNil(AntigravityStore.model(fromExecutorMetadata: Data(field(10, field(1, field(28, Array("two words".utf8)))))))
+
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let id = "0b90e9b2-ff91-4b88-9c9b-6481423ecbcd"
+        expectNil(AntigravityStore.model(under: root, conversation: id))
+        try makeConversation(root.appendingPathComponent("antigravity-cli/conversations/\(id).db"),
+                             [executorMetadata("gemini-3.8-flash-high"), executorMetadata("gemini-4-neon-high")])
+        expectEqual(AntigravityStore.model(under: root, conversation: id), "gemini-4-neon-high", "the latest turn's model")
+        try makeConversation(root.appendingPathComponent("antigravity/conversations/empty.db"), [])
+        expectNil(AntigravityStore.model(under: root, conversation: "empty"))
+        expectNil(AntigravityStore.model(under: root, conversation: "../antigravity-cli/conversations/\(id)"))
+
+        var asked = 0
+        func conversation(_ status: String, _ seconds: TimeInterval) -> AntigravityStore.Conversation {
+            AntigravityStore.Conversation(id: "c", status: "CASCADE_RUN_STATUS_" + status, modifiedAt: Date(timeIntervalSince1970: seconds), project: "api")
+        }
+        var s = SessionState(id: "antigravity:c", agent: .antigravity)
+        var current = "gemini-4-hydrogen-medium"
+        let lookup = { () -> String? in asked += 1; return current }
+        s.consumeAntigravity(conversation("IDLE", 100), model: lookup)
+        expectEqual(s.model, "gemini-4-hydrogen-medium", "read on first sight")
+        s.consumeAntigravity(conversation("IDLE", 100), model: lookup)
+        s.consumeAntigravity(conversation("RUNNING", 110), model: lookup)
+        s.consumeAntigravity(conversation("BUSY", 120), model: lookup)
+        expectEqual(asked, 2, "not read again until the state changes")
+        current = "gemini-4-neon-high"
+        s.consumeAntigravity(conversation("IDLE", 130), model: lookup)
+        expectEqual(s.state, .completed)
+        expectEqual(s.modelName, "gemini-4-neon-high", "the model that finished the turn")
+        s.consumeAntigravity(conversation("RUNNING", 140), model: { nil })
+        expectEqual(s.model, "gemini-4-neon-high", "an unreadable lookup keeps the last known model")
+    }
+
     func monitorReportsCompletion() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -164,6 +233,7 @@ final class AntigravityTests {
         expectEqual(received?.finished.map(\.state), [.completed])
         expectEqual(received?.finished.first?.agent, .antigravity)
         expectEqual(received?.finished.first?.project, "api")
+        expectNil(received?.finished.first?.model)
         monitor.poll()
         expectEqual(received?.finished.count, 0, "a finished turn is announced once")
     }

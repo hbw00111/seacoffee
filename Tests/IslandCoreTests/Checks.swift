@@ -96,6 +96,7 @@ enum Checks {
             ("monitor reports fresh questions once", agents.monitorReportsQuestions),
             ("Antigravity conversation databases: merge, nesting, privacy columns", antigravity.conversations),
             ("Antigravity run states", antigravity.runStates),
+            ("Antigravity model of the latest turn", antigravity.conversationModel),
             ("Antigravity database: completion notices", antigravity.monitorReportsCompletion),
             ("Cline session statuses", agents.clineStatuses),
             ("Pi turns, models and Cline Pass channel", agents.piTurns),
