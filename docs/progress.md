@@ -1,6 +1,6 @@
 # 项目进度
 
-最后更新：2026-11-20 · 独立版 0.1.0 / Droppy 插件 0.1.1（预览版）
+最后更新：2026-11-21 · 独立版 0.1.0 / Droppy 插件 0.1.1（预览版）
 
 ## 这个应用是干什么的
 
@@ -12,6 +12,7 @@
 
 | 状态 | 刘海上显示什么 |
 |---|---|
+| 11-21 | 识别 T3 Code 里的 Antigravity 任务：额外读取 `~/.t3/userdata/providers/antigravity/*/antigravity-acp/` 下的对话库 |
 | 收起（平时） | 刘海左侧是一滴液态融球：几个任务在跑就有几颗小球绕着转，完成变绿、出错变红、空闲变灰；右侧是各家额度的小圆环和剩余百分比 |
 | 展开（鼠标移上去） | 各家额度的详细数字与重置时间、正在运行的项目、打开对应工具的按钮 |
 | 任务完成时 | 刘海合拢成黑色徽章，画出对勾，下方写明是谁完成的，例如 `Claude Code · claude-opus-5-5`、`Pi · Cline Pass · glm-5.3-flash` |
@@ -33,6 +34,8 @@
 安装与使用见 [README](../README.md)，接口与实现细节见 [工作原理](how-it-works.md)。
 
 ## 当前状态
+
+识别 T3 Code 里的 Antigravity 任务（11-21）。用户反馈在 T3 Code 里用 Antigravity 时刘海不显示任务。原因：T3 Code 以 `agy acp --gemini-dir ~/.t3/userdata/providers/antigravity/<hash>` 启动 Antigravity，对话库在该目录的 `antigravity-acp/conversation_summaries.db`，不在 `~/.gemini` 下；表结构与 CLI、桌面应用相同。现在除 `~/.gemini` 外，每次轮询还会列出 `~/.t3/userdata/providers/antigravity/` 下的子目录，并在每个目录里多找一个 `antigravity-acp` 文件夹（`~/.gemini/antigravity-acp` 同样覆盖），模型名也从这些位置读取。新增 1 项检查，68 项核心检查与账号隔离检查通过，已重新构建、装进 `/Applications` 并重启；**T3 Code 里实际跑一次 Antigravity 任务时刘海的显示与完成提示还未验证**。Claude Code 在 T3 Code 里照常写 `~/.claude/projects`，不受影响。
 
 Antigravity 完成提示注明模型（11-20）。按用户要求与 Claude 一样，Antigravity 任务完成时刘海写“Antigravity · 模型名”。对话汇总表没有模型字段，改为在对话第一次出现和每次状态变化时，只读打开该对话自己的库 `conversations/<id>.db`，取最新一行 `executor_metadata`（本轮运行配置）里 protobuf 字段 10 → 1 → 28 的模型名，如 `gemini-4-neon-medium`；只保留这一个短字符串，不读步骤、提示与生成记录。显示的是 Antigravity 内部的模型代号（带推理强度后缀），不是应用里的展示名。新增 1 项核心检查（共 67 项），账号隔离检查与构建通过；已对本机真实数据只读运行，8 个对话都读到模型名，未在 Antigravity 目录留下文件。应用内的完成提示未实弹。
 

@@ -1,8 +1,9 @@
 import Foundation
 import SQLite3
 
-/// Antigravity (the `agy` CLI and the desktop app) lists its conversations in
-/// `~/.gemini/antigravity-cli/conversation_summaries.db` and `~/.gemini/antigravity/…`, one row
+/// Antigravity (the `agy` CLI, its ACP server and the desktop app) lists its conversations in
+/// `~/.gemini/antigravity-cli/conversation_summaries.db`, `~/.gemini/antigravity/…` and
+/// `~/.gemini/antigravity-acp/…`, one row
 /// per conversation with a live run status. Only status, times and workspace folders are
 /// selected — never the title, preview or search index, which hold conversation text. Each
 /// conversation's own database (`conversations/<id>.db`) is opened only for its model name.
@@ -18,19 +19,36 @@ public enum AntigravityStore {
         }
     }
 
-    static let folders = ["antigravity-cli", "antigravity"]
+    /// `agy acp` (used by editors such as T3 Code) keeps its own `antigravity-acp` folder.
+    static let folders = ["antigravity-cli", "antigravity", "antigravity-acp"]
+
+    /// Gemini folders to search: `base` (normally `~/.gemini`) plus each one T3 Code gives its
+    /// `agy acp` with `--gemini-dir` (`~/.t3/userdata/providers/antigravity/<hash>`). Listed on
+    /// every poll, since T3 Code may add a folder while Sea Coffee runs.
+    public static func roots(base: URL, linked: URL) -> [URL] {
+        let children = (try? FileManager.default.contentsOfDirectory(at: linked, includingPropertiesForKeys: [.isDirectoryKey],
+                                                                      options: [.skipsHiddenFiles])) ?? []
+        let dirs = children.filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+        return [base] + dirs.sorted { $0.path < $1.path }
+    }
+
+    public static func conversations(under root: URL, since: Date, limit: Int = 100) -> [Conversation]? {
+        conversations(under: [root], since: since, limit: limit)
+    }
 
     /// Top-level conversations changed since `since`, newest first. The desktop app mirrors the
     /// CLI's conversations into its own database, so the fresher row of each id wins. Returns nil
     /// when a database exists but cannot be read right now; none at all is an empty list.
-    public static func conversations(under root: URL, since: Date, limit: Int = 100) -> [Conversation]? {
+    public static func conversations(under roots: [URL], since: Date, limit: Int = 100) -> [Conversation]? {
         var latest: [String: Conversation] = [:]
         var failed = false
-        for folder in folders {
-            let url = root.appendingPathComponent(folder).appendingPathComponent("conversation_summaries.db")
-            guard FileManager.default.fileExists(atPath: url.path) else { continue }
-            guard let rows = read(url, since: since, limit: limit) else { failed = true; continue }
-            for row in rows where latest[row.id].map({ $0.modifiedAt < row.modifiedAt }) ?? true { latest[row.id] = row }
+        for root in roots {
+            for folder in folders {
+                let url = root.appendingPathComponent(folder).appendingPathComponent("conversation_summaries.db")
+                guard FileManager.default.fileExists(atPath: url.path) else { continue }
+                guard let rows = read(url, since: since, limit: limit) else { failed = true; continue }
+                for row in rows where latest[row.id].map({ $0.modifiedAt < row.modifiedAt }) ?? true { latest[row.id] = row }
+            }
         }
         if failed && latest.isEmpty { return nil }
         return Array(latest.values.sorted { $0.modifiedAt > $1.modifiedAt }.prefix(limit))
@@ -74,9 +92,13 @@ public enum AntigravityStore {
     /// turn's run configuration — and only its model name is kept; steps, prompts and the
     /// generation log are never selected. Nil when no turn has been recorded or it is unreadable.
     public static func model(under root: URL, conversation id: String) -> String? {
+        model(under: [root], conversation: id)
+    }
+
+    public static func model(under roots: [URL], conversation id: String) -> String? {
         // Ids are UUIDs; anything else must not become a path.
         guard !id.isEmpty, id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }) else { return nil }
-        let candidates = folders.map { root.appendingPathComponent($0).appendingPathComponent("conversations").appendingPathComponent(id + ".db") }
+        let candidates = roots.flatMap { root in folders.map { root.appendingPathComponent($0).appendingPathComponent("conversations").appendingPathComponent(id + ".db") } }
             .filter { FileManager.default.fileExists(atPath: $0.path) }
             .sorted { modified($0) > modified($1) }
         for url in candidates {

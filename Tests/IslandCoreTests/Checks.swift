@@ -95,6 +95,7 @@ enum Checks {
             ("Codex questions: one-off notice", agents.codexQuestions),
             ("monitor reports fresh questions once", agents.monitorReportsQuestions),
             ("Antigravity conversation databases: merge, nesting, privacy columns", antigravity.conversations),
+            ("Antigravity conversations from T3 Code's ACP folders", antigravity.linkedFolders),
             ("Antigravity run states", antigravity.runStates),
             ("Antigravity model of the latest turn", antigravity.conversationModel),
             ("Antigravity database: completion notices", antigravity.monitorReportsCompletion),

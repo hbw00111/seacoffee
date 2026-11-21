@@ -88,7 +88,7 @@ DSH Tokens 计入总量、缓存命中率与供应商 / 模型汇总，会话数
 |---|---|---|---|---|
 | Codex | `~/.codex/sessions/**/*.jsonl` | `task_started` / `turn_started` | `task_complete` / `turn_complete` | `turn_aborted` 等 / `task_failed` 等 |
 | Claude Code | `~/.claude/projects/*/*.jsonl` | 用户消息 | `stop_reason: end_turn` | `[Request interrupted by user` / `refusal` |
-| Antigravity | `~/.gemini/antigravity-cli/conversation_summaries.db` 与 `~/.gemini/antigravity/…` 的 `conversation_summaries` 表 | `status` 为 `CASCADE_RUN_STATUS_RUNNING` / `BUSY` / `CANCELING` | 从运行回到 `IDLE` | 回到 `IDLE` 前看到过 `CANCELING` 记为中断；失败无法区分 |
+| Antigravity | `~/.gemini/` 下 `antigravity-cli`、`antigravity`、`antigravity-acp` 三个文件夹的 `conversation_summaries.db`，以及 T3 Code 给 `agy acp` 的独立目录 `~/.t3/userdata/providers/antigravity/<hash>/` 下同样三个文件夹（每次轮询重新列出）的 `conversation_summaries` 表 | `status` 为 `CASCADE_RUN_STATUS_RUNNING` / `BUSY` / `CANCELING` | 从运行回到 `IDLE` | 回到 `IDLE` 前看到过 `CANCELING` 记为中断；失败无法区分 |
 | Cline | `~/.cline/data/sessions/*/session_*.json` | `starting` / `running` / `pending` / `stopping` | `completed`，或从运行回到 `idle` | `cancelled` / `failed`、`error` |
 | Pi（命令行） | `~/.pi/agent/sessions/*/*.jsonl` | 用户消息，`stopReason: toolUse` | `stopReason: stop`（或 `length`） | `aborted` / `error` |
 | PI-Desktop | `~/.pi-desktop/pi.sqlite` 的 `turns` 表 | `status = running` | `completed` | `aborted` / `error` |

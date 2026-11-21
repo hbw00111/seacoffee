@@ -14,10 +14,18 @@ public struct SessionSource: Sendable {
     public let root: URL
     /// SQLite databases (PI-Desktop, Antigravity) rather than a directory of session files.
     public let isDatabase: Bool
-    public init(agent: Agent, path: String, isDatabase: Bool = false) {
+    /// Antigravity only: a folder whose subfolders are further Gemini folders (T3 Code's).
+    public let linked: URL?
+    public init(agent: Agent, path: String, isDatabase: Bool = false, linked: String? = nil) {
         self.agent = agent
         self.isDatabase = isDatabase
         root = URL(fileURLWithPath: NSString(string: path).expandingTildeInPath)
+        self.linked = linked.map { URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath) }
+    }
+
+    /// Whether there is anything to read yet.
+    var exists: Bool {
+        FileManager.default.fileExists(atPath: root.path) || linked.map { FileManager.default.fileExists(atPath: $0.path) } == true
     }
 
     public static func defaults(codexPath: String, enabled: Set<Agent> = Set(Agent.allCases)) -> [SessionSource] {
@@ -28,8 +36,12 @@ public struct SessionSource: Sendable {
         var sources = paths.filter { enabled.contains($0.0) }.map { SessionSource(agent: $0.0, path: $0.1) }
         // PI-Desktop shares the Pi toggle but stores sessions in its own database.
         if enabled.contains(.pi) { sources.append(SessionSource(agent: .pi, path: "~/.pi-desktop/pi.sqlite", isDatabase: true)) }
-        // Antigravity's CLI and desktop app each keep a conversation database under ~/.gemini.
-        if enabled.contains(.antigravity) { sources.append(SessionSource(agent: .antigravity, path: "~/.gemini", isDatabase: true)) }
+        // Antigravity's CLI and desktop app each keep a conversation database under ~/.gemini;
+        // T3 Code runs `agy acp` with a Gemini folder of its own.
+        if enabled.contains(.antigravity) {
+            sources.append(SessionSource(agent: .antigravity, path: "~/.gemini", isDatabase: true,
+                                         linked: "~/.t3/userdata/providers/antigravity"))
+        }
         return sources
     }
 
@@ -55,8 +67,9 @@ public struct SessionSource: Sendable {
     /// The current state of each session in a database source, or nil when it cannot be read now.
     func databaseSessions(since: Date) -> [(id: String, apply: (inout SessionState) -> Void)]? {
         if agent == .antigravity {
-            return AntigravityStore.conversations(under: root, since: since)?.map { row in
-                (databasePrefix + row.id, { $0.consumeAntigravity(row, model: { AntigravityStore.model(under: root, conversation: row.id) }) })
+            let roots = linked.map { AntigravityStore.roots(base: root, linked: $0) } ?? [root]
+            return AntigravityStore.conversations(under: roots, since: since)?.map { row in
+                (databasePrefix + row.id, { $0.consumeAntigravity(row, model: { AntigravityStore.model(under: roots, conversation: row.id) }) })
             }
         }
         return PiDesktopStore.latestTurns(at: root, since: since)?.map { turn in
@@ -164,7 +177,7 @@ public final class SessionMonitor: @unchecked Sendable {
 
     private func scan() {
         let fm = FileManager.default
-        let present = sources.filter { fm.fileExists(atPath: $0.root.path) }
+        let present = sources.filter(\.exists)
         guard !present.isEmpty else {
             callback(MonitorSnapshot(sessions: [], finished: [], message: "尚未找到会话目录")); return
         }

@@ -115,6 +115,30 @@ final class AntigravityTests {
         expectNil(AntigravityStore.conversations(under: root, since: .distantPast))
     }
 
+    /// T3 Code runs `agy acp --gemini-dir ~/.t3/userdata/providers/antigravity/<hash>`.
+    func linkedFolders() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let base = home.appendingPathComponent(".gemini"), linked = home.appendingPathComponent("providers")
+        expectEqual(AntigravityStore.roots(base: base, linked: linked), [base], "no T3 folder is just ~/.gemini")
+        let now = Date(timeIntervalSince1970: (Date().timeIntervalSince1970 * 1000).rounded() / 1000)
+        let t3 = linked.appendingPathComponent("0f3a9c1e")
+        try makeDatabase(t3.appendingPathComponent("antigravity-acp/conversation_summaries.db"), [
+            row("t3", "CASCADE_RUN_STATUS_RUNNING", now.addingTimeInterval(-3)),
+        ])
+        try makeDatabase(base.appendingPathComponent("antigravity/conversation_summaries.db"), [
+            row("app", "CASCADE_RUN_STATUS_IDLE", now.addingTimeInterval(-20)),
+        ])
+        try Data().write(to: linked.appendingPathComponent("stray-file"))
+        let roots = AntigravityStore.roots(base: base, linked: linked)
+        expectEqual(roots.map(\.lastPathComponent), [".gemini", "0f3a9c1e"], "subfolders only, files ignored")
+        expectEqual(AntigravityStore.conversations(under: roots, since: now.addingTimeInterval(-172800))?.map(\.id), ["t3", "app"],
+                    "T3 Code's conversations join the app's")
+        let id = "0b90e9b2-ff91-4b88-9c9b-6481423ecbcd"
+        try makeConversation(t3.appendingPathComponent("antigravity-acp/conversations/\(id).db"), [executorMetadata("gemini-4-neon-high")])
+        expectEqual(AntigravityStore.model(under: roots, conversation: id), "gemini-4-neon-high", "model read from T3 Code's folder")
+    }
+
     func runStates() {
         func conversation(_ status: String, _ seconds: TimeInterval) -> AntigravityStore.Conversation {
             AntigravityStore.Conversation(id: "c", status: "CASCADE_RUN_STATUS_" + status, modifiedAt: Date(timeIntervalSince1970: seconds), project: "api")
