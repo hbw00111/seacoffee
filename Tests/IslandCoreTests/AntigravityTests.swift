@@ -115,6 +115,27 @@ final class AntigravityTests {
         expectNil(AntigravityStore.conversations(under: root, since: .distantPast))
     }
 
+    /// `agy acp` writes no discovery file; its log names the ports, its file name the pid.
+    func acpServerDiscovery() {
+        let log = Data("""
+            I1121 14:38:51.828277      82 server.go:1269] Language server will attempt to listen on host localhost
+            I1121 14:38:51.830134      82 server.go:1284] Language server listening on random port at 56294 for HTTPS (gRPC)
+            I1121 14:38:51.830293      82 server.go:1292] Language server listening on random port at 56295 for HTTP
+            I1121 14:38:59.000000      82 server.go:1284] Language server listening on random port at 60000 for HTTPS (gRPC)
+            """.utf8)
+        let hub = AntigravityHub.acpServer(log: log, pid: 45082)
+        expectEqual(hub?.endpoints.map(\.absoluteString), ["https://127.0.0.1:56294/exa.language_server_pb.LanguageServerService/",
+                                                          "http://127.0.0.1:56295/exa.language_server_pb.LanguageServerService/"],
+                    "first ports of the launch, HTTPS first")
+        expectEqual(hub?.csrfToken, "", "agy acp needs no token")
+        expectNil(AntigravityHub.acpServer(log: Data("starting\nport at 99999 for HTTPS\n".utf8), pid: 1)) // no listening line is no server
+        expectNil(AntigravityHub.acpServer(log: Data("listening on random port at 70000 for HTTP\n".utf8), pid: 1)) // out-of-range port
+        expectNil(AntigravityHub.acpServer(log: log, pid: 0))
+        expectEqual(AntigravityHub.acpLogPID("acp-server-20261121_143851-45082.log"), 45082)
+        expectNil(AntigravityHub.acpLogPID("acp-server-20261121_143851-x.log"))
+        expectNil(AntigravityHub.acpLogPID("language-server-45082.log"))
+    }
+
     /// T3 Code runs `agy acp --gemini-dir ~/.t3/userdata/providers/antigravity/<hash>`.
     func linkedFolders() throws {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

@@ -25,7 +25,7 @@
   | Codex 官方 | 5 小时 / 每周额度 | 通过 `codex app-server` 浏览器登录 |
   | Cline Pass | 5 小时 / 每周 / 每月 | API Key，或设备码登录 |
   | Claude | 5 小时 / 每周 / Sonnet、Opus 每周 | 复用本机 Claude Code 登录 |
-  | Antigravity | Gemini 的 5 小时 / 每周（收起时显示 5 小时） | 向本机运行中的 Antigravity 应用读取 |
+  | Antigravity | Gemini 的 5 小时 / 每周（收起时显示 5 小时） | 向本机运行中的 Antigravity 应用读取，应用没开时读 `agy acp`（如 T3 Code 启动的） |
 
 - **隐私优先**：只读取事件类型、时间、项目目录名和模型名，不保存、不上传对话内容；复用其他工具的登录时只读不写。
 - **刘海上显示哪些由你选**：设置的账号概览下方有一行复选框，取消勾选的账号不再出现在刘海上（收起和展开都不显示），只在设置里能看到。
@@ -73,7 +73,7 @@ bash scripts/build-droplet.sh
 - **Codex 官方**：切换接入方式后点击“连接官方账号”。使用独立的 Codex 主目录，不影响你现有的 Codex 登录。
 - **Cline Pass**：推荐在 [app.cline.bot](https://app.cline.bot) 生成 API Key 粘贴保存；也可以用设备码在浏览器登录。
 - **Claude**：先在终端运行 `claude` 并登录，然后点击“连接 Claude Code”。
-- **Antigravity**：保持 Antigravity 应用打开，点击“连接 Antigravity”。应用没开时保留上次额度，打开后自动恢复。
+- **Antigravity**：保持 Antigravity 应用打开（或在 T3 Code 等编辑器里用着 Antigravity，即有 `agy acp` 在运行），点击“连接 Antigravity”。两者都没有时保留上次额度，之后自动恢复。
 - **任务状态**：默认监听全部六个工具，可逐个关闭。通过 Pi 使用 Cline Pass 时，完成提示会注明渠道，额度也计入 Cline 额度。
 
 需要开机自动运行时，在设置“外观与交互”中打开“开机自启”（立即生效）。
@@ -83,7 +83,7 @@ bash scripts/build-droplet.sh
 ## 安全与隐私
 
 - 自己保存的凭据（Sub2API Key、Cline 登录或 Key）存放在 `~/Library/Application Support/SeaIsland/credentials.json`，权限 `0600`，原子写入。选择文件而非钥匙串，是因为未使用 Apple Developer ID 签名时，钥匙串授权会绑定到每次构建的二进制哈希，重新编译后全部失效。
-- Antigravity 不读登录、不联网：额度只向本机运行中的 Antigravity 应用读取（`127.0.0.1`），从不启动它。
+- Antigravity 不读登录、不联网：额度只向本机运行中的 Antigravity 应用或 `agy acp` 读取（`127.0.0.1`），从不启动它们。
 - Claude 的令牌只读、仅保存在内存，从不刷新或写回，不会影响原工具的登录。令牌过期时只让原工具自己续期：Claude 在后台从不启动 Claude Code，只保留上次额度并提示，等你下次使用 Claude Code 时由它自己续期，点击“重新读取”时才在独立目录里打开一次 `/usage` 读取额度（无工具、无钩子、不发提问，结束后删除会话记录）。
 - 所有请求拒绝跟随重定向，凭据不写入日志或 UserDefaults。
 - Claude、Cline 的额度接口是各家官网或 CLI 使用的接口，Antigravity 用的是应用自己的本地接口，都不是公开稳定的 API，格式变化时会保留旧值并提示，而不是显示错误数字。

@@ -6,7 +6,7 @@ public enum AntigravityError: LocalizedError, Equatable {
     case http(Int, String?)
     public var errorDescription: String? {
         switch self {
-        case .notRunning: return "Antigravity 应用没有运行，保留上次额度；打开 Antigravity 后自动恢复。"
+        case .notRunning: return "Antigravity 应用和 agy acp 都没有运行，保留上次额度；打开 Antigravity 后自动恢复。"
         case .usageUnavailable: return "Antigravity 没有返回可识别的额度。"
         case .invalidResponse: return "Antigravity 返回了无法识别的数据。"
         case .http(let code, let reason): return "Antigravity 请求失败（HTTP \(code)\(reason.map { "：\($0)" } ?? "")）。"
@@ -21,7 +21,11 @@ public struct AntigravityHub: Sendable, Equatable {
     public let pid: Int32
     public let httpsPort: Int?
     public let httpPort: Int?
+    /// Empty for an `agy acp` server, which asks for none.
     public let csrfToken: String
+    public init(pid: Int32, httpsPort: Int?, httpPort: Int?, csrfToken: String) {
+        self.pid = pid; self.httpsPort = httpsPort; self.httpPort = httpPort; self.csrfToken = csrfToken
+    }
 
     public static func parse(_ data: Data) -> Self? {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -30,6 +34,31 @@ public struct AntigravityHub: Sendable, Equatable {
         func port(_ key: String) -> Int? { UsageDecoder.number(root[key]).map { Int($0) }.flatMap { (1...65535).contains($0) ? $0 : nil } }
         let hub = Self(pid: Int32(pid), httpsPort: port("httpsPort"), httpPort: port("httpPort"), csrfToken: token)
         return hub.endpoints.isEmpty ? nil : hub
+    }
+
+    /// `agy acp` (the server editors such as T3 Code start) writes no discovery file, but its log
+    /// `antigravity-acp/log/acp-server-<time>-<pid>.log` opens with the ports it listens on
+    /// (`Language server listening on random port at 56294 for HTTPS (gRPC)`). Unlike the
+    /// interactive `agy`, this server answers without a CSRF token.
+    public static func acpServer(log: Data, pid: Int32) -> Self? {
+        guard pid > 0 else { return nil }
+        let text = String(decoding: log.prefix(64 * 1024), as: UTF8.self)
+        var https: Int?, http: Int?
+        for line in text.split(separator: "\n") where line.contains("listening on random port at ") {
+            guard let range = line.range(of: "listening on random port at ") else { continue }
+            let rest = line[range.upperBound...]
+            guard let port = Int(rest.prefix { $0.isNumber }), (1...65535).contains(port) else { continue }
+            if rest.contains("for HTTPS") { https = https ?? port } else if rest.contains("for HTTP") { http = http ?? port }
+        }
+        let hub = Self(pid: pid, httpsPort: https, httpPort: http, csrfToken: "")
+        return hub.endpoints.isEmpty ? nil : hub
+    }
+
+    /// `acp-server-20261121_143851-45082.log` → 45082.
+    public static func acpLogPID(_ name: String) -> Int32? {
+        guard name.hasPrefix("acp-server-"), name.hasSuffix(".log"),
+              let tail = name.dropLast(4).split(separator: "-").last, let pid = Int32(tail), pid > 0 else { return nil }
+        return pid
     }
 
     /// Loopback only, HTTPS first.

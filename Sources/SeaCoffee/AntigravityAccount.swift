@@ -1,7 +1,8 @@
 import Foundation
 import IslandCore
 
-/// Asks the running Antigravity desktop app for its quota over loopback, as CodexBar does.
+/// Asks the running Antigravity desktop app for its quota over loopback, as CodexBar does, or
+/// else an `agy acp` server (such as the one T3 Code starts), which shares the same account quota.
 /// Sea Coffee holds no Antigravity login, sends nothing to Google and never starts Antigravity:
 /// with the app closed the last numbers stay, which is also when the quota cannot move.
 @MainActor
@@ -73,15 +74,40 @@ final class AntigravityAccount: ObservableObject {
 
     func stop() { task?.cancel() }
 
-    /// Antigravity's own discovery files, kept only for processes that are still alive.
+    /// Antigravity's own discovery files, kept only for processes that are still alive; then any
+    /// running `agy acp` servers, found through their logs.
     nonisolated private static func runningHubs() -> [AntigravityHub] {
-        let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".gemini/antigravity/daemon")
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let folder = home.appendingPathComponent(".gemini/antigravity/daemon")
         let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
-        return names.filter { $0.hasSuffix(".json") }.sorted()
+        let app = names.filter { $0.hasSuffix(".json") }.sorted()
             .compactMap { try? Data(contentsOf: folder.appendingPathComponent($0)) }
             .compactMap(AntigravityHub.parse)
             // Signal 0 only asks whether the process exists; a crashed app leaves its file behind.
             .filter { kill($0.pid, 0) == 0 }
+        let roots = AntigravityStore.roots(base: home.appendingPathComponent(".gemini"),
+                                           linked: home.appendingPathComponent(".t3/userdata/providers/antigravity"))
+        var acp: [AntigravityHub] = []
+        for root in roots {
+            let logs = root.appendingPathComponent("antigravity-acp/log")
+            let files = (try? FileManager.default.contentsOfDirectory(atPath: logs.path)) ?? []
+            // Newest launch first; only a live process that is still `agy`, since pids are reused.
+            for name in files.sorted(by: >) {
+                guard let pid = AntigravityHub.acpLogPID(name), kill(pid, 0) == 0, isAgy(pid),
+                      let handle = FileHandle(forReadingAtPath: logs.appendingPathComponent(name).path) else { continue }
+                let head = (try? handle.read(upToCount: 64 * 1024)) ?? Data()
+                try? handle.close()
+                if let hub = AntigravityHub.acpServer(log: head, pid: pid) { acp.append(hub) }
+            }
+        }
+        return app + acp
+    }
+
+    nonisolated private static func isAgy(_ pid: Int32) -> Bool {
+        var buffer = [CChar](repeating: 0, count: 4096)
+        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return false }
+        let name = URL(fileURLWithPath: String(cString: buffer)).lastPathComponent.lowercased()
+        return name == "agy" || name.contains("antigravity")
     }
 
     /// The first endpoint that answers; the last refusal is the one reported.
@@ -106,7 +132,7 @@ final class AntigravityAccount: ObservableObject {
         request.timeoutInterval = timeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("1", forHTTPHeaderField: "Connect-Protocol-Version")
-        request.setValue(hub.csrfToken, forHTTPHeaderField: AntigravityProtocol.csrfHeader)
+        if !hub.csrfToken.isEmpty { request.setValue(hub.csrfToken, forHTTPHeaderField: AntigravityProtocol.csrfHeader) }
         let (data, response) = try await session.data(for: request)
         try AntigravityProtocol.validate(status: (response as? HTTPURLResponse)?.statusCode ?? 0, body: data)
         return data

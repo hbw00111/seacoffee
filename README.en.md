@@ -27,7 +27,7 @@ Native SwiftUI + AppKit. No Electron, no third-party runtime dependencies.
   | Codex official | 5-hour / weekly limits | Browser sign-in through `codex app-server` |
   | Cline Pass | 5-hour / weekly / monthly | API key, or device-code sign-in |
   | Claude | 5-hour / weekly / Sonnet and Opus weekly | Reuses your Claude Code login |
-  | Antigravity | Gemini 5-hour / weekly (5-hour when collapsed) | Read from the Antigravity app running on this Mac |
+  | Antigravity | Gemini 5-hour / weekly (5-hour when collapsed) | Read from the Antigravity app running on this Mac, or from `agy acp` (as started by T3 Code) when the app is closed |
 
 - **Privacy first**: only event types, timestamps, project folder names, and model names are read. Conversation content is never stored or uploaded. Logins borrowed from other tools are read-only.
 - **You choose what the notch shows**: Settings has a row of checkboxes under the account overview. Unticked accounts leave the island, collapsed and expanded, and stay visible in Settings only.
@@ -71,7 +71,7 @@ Open **Settings** and connect the sources you use:
 - **Codex official**: switch the connection mode and click "连接官方账号" (Connect official account). A separate Codex home directory is used, so your existing Codex login is untouched.
 - **Cline Pass**: create an API key at [app.cline.bot](https://app.cline.bot) and paste it in, or sign in with a device code in your browser.
 - **Claude**: sign in with `claude` in a terminal first, then click "连接 Claude Code" (Connect Claude Code).
-- **Antigravity**: keep the Antigravity app open, then click "连接 Antigravity" (Connect Antigravity). With the app closed the last quota stays on screen and recovers when it is opened again.
+- **Antigravity**: keep the Antigravity app open (or use Antigravity inside an editor such as T3 Code, which runs `agy acp`), then click "连接 Antigravity" (Connect Antigravity). With neither running the last quota stays on screen and recovers later.
 - **Task status**: all six agents are followed by default; each can be turned off. When Pi uses Cline Pass, the completion label names the channel and the usage counts toward the Cline quota.
 
 To start Sea Coffee when you log in, turn on "开机自启" (Launch at login) under "外观与交互" (Appearance and interaction) in Settings; it takes effect immediately.
@@ -81,7 +81,7 @@ Hover over the top of the screen to expand; move away to collapse. "固定展开
 ## Security and privacy
 
 - Credentials that Sea Coffee saves itself (Sub2API key, Cline login or key) live in `~/Library/Application Support/SeaIsland/credentials.json` with `0600` permissions and atomic writes. A file is used instead of the Keychain because, without an Apple Developer ID signature, Keychain grants are tied to each build's binary hash and are lost on every rebuild.
-- Antigravity needs no login and no network: its quota is read only from the Antigravity app running on this Mac (`127.0.0.1`), which Sea Coffee never starts.
+- Antigravity needs no login and no network: its quota is read only from the Antigravity app or `agy acp` running on this Mac (`127.0.0.1`), which Sea Coffee never starts.
 - Claude tokens are read-only, kept in memory, and never refreshed or written back, so Claude Code stays signed in. When a token expires, only the original tool renews it: Sea Coffee never starts Claude Code in the background: it keeps the last quota and says the login expired until you next use Claude Code, which renews itself. Only when you click "重新读取" (Re-read) does it open Claude Code's `/usage` screen once in a dedicated folder and read the quota from it (no tools, no hooks, no prompt sent, transcript removed afterwards).
 - No request follows redirects, and credentials are never written to logs or UserDefaults.
 - The Claude and Cline quota endpoints are the ones their websites or CLIs use, and Antigravity's is the app's own local one; none is a stable public API. If a format changes, Sea Coffee keeps the last value and shows a notice rather than a wrong number.

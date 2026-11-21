@@ -65,6 +65,7 @@ enum Checks {
             ("Claude /usage screen fallback", claude.usageScreen),
             ("Claude Keychain renewal stamp", claude.keychainStamp),
             ("Antigravity local server discovery", antigravity.hubDiscovery),
+            ("Antigravity agy acp server discovery from its log", antigravity.acpServerDiscovery),
             ("Antigravity quota summary: groups, windows, unknown buckets", antigravity.quotaSummary),
             ("Antigravity account, plan and HTTP status", antigravity.identityAndStatus),
             ("credential preview masks secrets and short keys", credentials.maskedPreview),

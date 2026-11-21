@@ -12,6 +12,7 @@
 
 | 状态 | 刘海上显示什么 |
 |---|---|
+| 11-21 | Antigravity 额度在桌面应用没开时改从 `agy acp`（如 T3 Code 启动的）读取：从它的日志找端口，不需要令牌 |
 | 11-21 | 识别 T3 Code 里的 Antigravity 任务：额外读取 `~/.t3/userdata/providers/antigravity/*/antigravity-acp/` 下的对话库 |
 | 收起（平时） | 刘海左侧是一滴液态融球：几个任务在跑就有几颗小球绕着转，完成变绿、出错变红、空闲变灰；右侧是各家额度的小圆环和剩余百分比 |
 | 展开（鼠标移上去） | 各家额度的详细数字与重置时间、正在运行的项目、打开对应工具的按钮 |
@@ -34,6 +35,8 @@
 安装与使用见 [README](../README.md)，接口与实现细节见 [工作原理](how-it-works.md)。
 
 ## 当前状态
+
+Antigravity 额度也能从 `agy acp` 读（11-21）。用户反馈额度查不到：当时 Antigravity 桌面应用已退出（`daemon/hub_*.json` 随之删除），而原先只向桌面应用读额度；Sea Coffee 重启后又没有上次的值可显示。研究发现，T3 Code 启动的 `agy acp` 本地服务不要求 CSRF 令牌（交互式 `agy` 仍要求，返回 401），`RetrieveUserQuotaSummary` 的返回格式与桌面应用相同；它不写发现文件，但日志 `antigravity-acp/log/acp-server-<时间>-<pid>.log` 开头写明监听的 HTTPS / HTTP 端口。现在先找桌面应用，没有时再从 `~/.gemini` 与 T3 Code 各目录的这些日志里找进程仍在、且可执行文件确实是 `agy` 的服务（防止进程号复用），只读日志前 64 KB，请求不带令牌。新增 1 项检查，69 项核心检查与账号隔离检查通过；已装进 `/Applications` 并重启，在桌面应用关闭的情况下读到真实额度（Gemini 5 小时 94.8%、每周 75.8%）。只开交互式 `agy`、不开应用也不开 `agy acp` 时仍读不到。
 
 识别 T3 Code 里的 Antigravity 任务（11-21）。用户反馈在 T3 Code 里用 Antigravity 时刘海不显示任务。原因：T3 Code 以 `agy acp --gemini-dir ~/.t3/userdata/providers/antigravity/<hash>` 启动 Antigravity，对话库在该目录的 `antigravity-acp/conversation_summaries.db`，不在 `~/.gemini` 下；表结构与 CLI、桌面应用相同。现在除 `~/.gemini` 外，每次轮询还会列出 `~/.t3/userdata/providers/antigravity/` 下的子目录，并在每个目录里多找一个 `antigravity-acp` 文件夹（`~/.gemini/antigravity-acp` 同样覆盖），模型名也从这些位置读取。新增 1 项检查，68 项核心检查与账号隔离检查通过，已重新构建、装进 `/Applications` 并重启；**T3 Code 里实际跑一次 Antigravity 任务时刘海的显示与完成提示还未验证**。Claude Code 在 T3 Code 里照常写 `~/.claude/projects`，不受影响。
 

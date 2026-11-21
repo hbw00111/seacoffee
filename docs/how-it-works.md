@@ -75,7 +75,8 @@ DSH Tokens 计入总量、缓存命中率与供应商 / 模型汇总，会话数
 - 请求 `POST https://127.0.0.1:<httpsPort>/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary`，正文 `{"forceRefresh":true}`，请求头 `Connect-Protocol-Version: 1` 与 `X-Codeium-Csrf-Token`；HTTPS 不通时改用 `http://127.0.0.1:<httpPort>`。本地服务用自签名证书，只对 `127.0.0.1` 接受，其他主机仍走系统校验，拒绝重定向。
 - 返回 `response.groups[]`（目前是 Gemini、Claude 与 GPT 两组），每组的 `buckets[]` 带 `bucketId`、`window`（`5h` / `weekly`）、`remainingFraction`（0–1）与 `resetTime`。只保留 Gemini 组（按用户要求，Claude/GPT 组不显示、不记录）。每个桶一行，标签是“Gemini + 周期”（如 `Gemini 5 小时`）。排序是：剩余最少的 5 小时桶、剩余最少的每周桶，然后其余桶按周期与剩余排列。收起的刘海显示第一个（5 小时），展开面板固定显示前两行（5 小时与每周），设置里列出全部。没有 `remainingFraction` 或标了 `disabled` 的桶视为未知，不显示。
 - 账号邮箱与套餐名来自同一服务的 `GetUserStatus`（`userStatus.email`、`userStatus.userTier.name`），只在设置里显示，失败不影响额度。
-- Antigravity 应用没开时提示并保留上次额度，从不启动它。`agy` 命令行与应用共用同一份账号额度，但命令行自己的本地服务需要一个拿不到的 CSRF 令牌，所以只开 `agy`、不开应用时读不到额度。每 2 分钟最多查询一次。
+- 桌面应用没开时，改找正在运行的 `agy acp`（编辑器接入用的 ACP 服务，T3 Code 以 `agy acp --gemini-dir ~/.t3/userdata/providers/antigravity/<hash>` 启动）。它不写发现文件，但日志 `<Gemini 目录>/antigravity-acp/log/acp-server-<时间>-<pid>.log` 开头写明端口（`Language server listening on random port at <端口> for HTTPS (gRPC)` / `for HTTP`）。在 `~/.gemini` 与 T3 Code 的各目录里按文件名取进程号，要求进程仍在、且 `proc_pidpath` 的文件名是 `agy`（或含 `antigravity`），只读日志前 64 KB。这个服务不要求 CSRF 令牌，请求不带令牌头，接口与返回格式和桌面应用相同。顺序：桌面应用优先，其次最新启动的 `agy acp`。
+- 两者都没有时提示并保留上次额度，从不启动它们。交互式 `agy` 的本地服务需要一个拿不到的 CSRF 令牌（不带时返回 401），所以只开交互式 `agy` 时读不到额度。每 2 分钟最多查询一次。
 - 没有采用云端接口：最初直接请求 `daily-cloudcode-pa.googleapis.com` 的 `fetchAvailableModels`，真实账号返回 `403 PERMISSION_DENIED`（服务只接受自家客户端）。CodexBar 的云端方案靠冒用客户端标识并自己刷新令牌，这里不做。
 
 ## 任务状态
